@@ -1,4 +1,4 @@
-name: Playtest release
+name: Release
 
 # Every push to main (and a manual run) builds the launcher and publishes it as
 # a release, so testers always find the newest build under Releases.
