@@ -114,6 +114,20 @@ func runDesktopLauncher(exeDir string, cfg Config) bool {
 	_ = w.Bind("dnUseServer", func(id string) {
 		go func() { reply("dnServerResult", api.UseServer(id)) }()
 	})
+	// Launcher updates (update_windows.go): network, so off the UI thread.
+	_ = w.Bind("dnCheckUpdate", func() {
+		go func() { reply("dnUpdateResult", api.CheckUpdate()) }()
+	})
+	_ = w.Bind("dnApplyUpdate", func() {
+		go func() {
+			r := api.ApplyUpdate()
+			reply("dnUpdateApplied", r)
+			if r["ok"] == true {
+				time.Sleep(1500 * time.Millisecond)
+				w.Dispatch(w.Terminate)
+			}
+		}()
+	})
 	_ = w.Bind("dnNews", func() {
 		go func() { reply("dnNewsResult", api.News()) }()
 	})

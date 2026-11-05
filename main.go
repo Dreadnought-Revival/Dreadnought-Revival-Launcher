@@ -372,6 +372,9 @@ type Config struct {
 	// machine and user; set it to carry an account to another machine, or to
 	// recover one after the identity file was lost.
 	PlayerID string `json:"player_id"`
+	// SkipUpdateCheck: do not ask GitHub for a newer launcher at start
+	// (update_windows.go).
+	SkipUpdateCheck bool `json:"skip_update_check"`
 	// ServerListURL replaces the server list's download address
 	// (serverlist.go); "none" turns the download off.
 	ServerListURL string `json:"server_list_url"`
@@ -524,6 +527,7 @@ func main() {
 
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
+	removeOldExe() // left by an update (update_windows.go)
 
 	// --remove-certs: take every server certificate the launcher knows of out
 	// of the Trusted Root store (certs_windows.go), e.g. from an uninstaller.

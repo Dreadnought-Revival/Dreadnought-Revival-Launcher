@@ -150,6 +150,10 @@
   .srv .d { display:block; font-size:12px; color:#9a9a9a; word-break:break-all; }
   #signin-server { position:absolute; left:80px; top:552px; color:#9a9a9a; font-size:13px; }
   #signin-server b { color:#fff; font-weight:normal; margin-right:10px; }
+  #update { position:absolute; left:500px; top:22px; width:360px; text-align:right; font-size:12px; color:#d8d8d8; z-index:4; }
+  #update .linkbtn { margin:0 0 0 10px; font-size:18px; line-height:16px; color:var(--orange); }
+  #update .linkbtn:hover { color:#fff; }
+  #update.bad { color:var(--orange); }
   #note { position:absolute; right:15px; top:50px; width:600px; text-align:right; color:var(--ok); font-size:12px; pointer-events:none; }
   #cert-origin { margin:-2px 0 4px; color:#9a9a9a; }
   #certlist { max-height:48px; overflow-y:auto; }
@@ -173,6 +177,7 @@
     <li><a onclick="signOut()">Sign out</a></li>
   </ul>
   <div id="status" title="">Connecting…</div>
+  <div id="update" hidden></div>
   <button class="winbtn" id="minimize" title="Minimize" onclick="dnWindow('minimize')"><i class="ic" data-g="&#xe63e;" data-f="&#x2014;"></i></button>
   <button class="winbtn" id="close" title="Close" onclick="dnWindow('close')"><i class="ic" data-g="&#xe640;" data-f="&#x2715;"></i></button>
 
@@ -456,6 +461,42 @@
     else afterCert();
   }
 
+  // ---- launcher updates (update_windows.go) --------------------------------
+  let updateInfo = null;
+  function dnUpdateResult(r) {
+    if (!r || !r.available) return;
+    updateInfo = r;
+    const u = $('update');
+    u.className = '';
+    u.textContent = 'LAUNCHER v' + r.version + ' AVAILABLE';
+    const b = document.createElement('button');
+    b.className = 'linkbtn';
+    b.textContent = r.inPlace ? 'Update' : 'Download';
+    b.onclick = () => {
+      if (!r.inPlace) { openURL(r.page); return; }
+      b.disabled = true;
+      u.firstChild.textContent = 'UPDATING TO v' + r.version + '…';
+      dnApplyUpdate();
+    };
+    u.append(b);
+    u.hidden = false;
+  }
+  function dnUpdateApplied(r) {
+    const u = $('update');
+    if (r.ok) {
+      u.textContent = window.dnBrowser ? 'UPDATED -- THE NEW LAUNCHER OPENS IN A NEW TAB' : 'UPDATED -- RESTARTING…';
+      return;
+    }
+    u.className = 'bad';
+    u.textContent = (r.error || 'The update failed.') + ' ';
+    if (updateInfo && updateInfo.page) {
+      const b = document.createElement('button');
+      b.className = 'linkbtn'; b.textContent = 'Download';
+      b.onclick = () => openURL(updateInfo.page);
+      u.append(b);
+    }
+  }
+
   // ---- certificates: the 30-day clean-up and the list in Settings ---------
   function note(text) {
     $('note').textContent = text;
@@ -659,5 +700,6 @@
     dnNews();
     // After the window is up: Windows' removal question belongs to it.
     setTimeout(cleanCerts, 1500);
+    if (typeof window.dnCheckUpdate === 'function') dnCheckUpdate();
   })();
 </script>

@@ -54,6 +54,8 @@ const browserBridgeJS = `<script>
   window.dnRemoveCert = (h) => dnCall('removeCert', [h]);
   window.dnUseServer = (id) => { dnCall('useServer', [id]).then(dnServerResult, e => dnServerResult({ ok: false, error: String(e) })); };
   window.dnSubmit = (m, u, i, p) => { dnCall('submit', [m, u, i, p]).then(dnAuthResult, e => dnAuthResult({ ok: false, error: String(e) })); };
+  window.dnCheckUpdate = () => { dnCall('checkUpdate').then(dnUpdateResult, () => {}); };
+  window.dnApplyUpdate = () => { dnCall('applyUpdate').then(dnUpdateApplied, e => dnUpdateApplied({ ok: false, error: String(e) })); };
   window.dnNews = () => { dnCall('news').then(dnNewsResult, e => dnNewsResult({ online: false, error: String(e) })); };
   window.dnPlay = () => {
     dnCall('play').then(r => {
@@ -151,6 +153,15 @@ func runBrowserLauncher(exeDir string, cfg Config) error {
 			out = api.Submit(str(0), str(1), str(2), str(3))
 		case "news":
 			out = api.News()
+		case "checkUpdate":
+			out = api.CheckUpdate()
+		case "applyUpdate":
+			res := api.ApplyUpdate()
+			if res["ok"] == true {
+				// The new launcher opens its own page; this one goes.
+				time.AfterFunc(3*time.Second, finish)
+			}
+			out = res
 		case "openLogs":
 			out = api.OpenLogs()
 		case "assets":

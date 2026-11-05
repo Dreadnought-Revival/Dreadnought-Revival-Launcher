@@ -36,6 +36,18 @@ footer, and Windows' Properties > Details). Each release carries:
 
 (Builds before 2026-11-05 were called `playtest-N` and shipped `dn-launcher.exe`.)
 
+**Launcher updates** (`update_windows.go`, since v1.0.4). At start the window
+asks GitHub for this repository's latest release. When it is newer, the top
+of the window shows *LAUNCHER v1.0.N AVAILABLE -- UPDATE*. Update downloads
+`Dreadnought-Revival.exe` from that release, checks it against the release's
+`SHA256SUMS.txt`, puts it in place of the running exe (whatever it is called,
+e.g. `DreadnoughtLauncher.exe`; the old one becomes `<exe>.old`, deleted at the
+next start), and restarts. If the launcher's folder cannot be written, the
+button opens the release page instead. Nothing is downloaded until the player
+presses it. A local build (version `dev`) never checks, and
+`"skip_update_check": true` in `dn-launcher.json` turns it off. Launchers
+before v1.0.4 have no check: update those by hand once.
+
 A change to `serverlist.yaml` alone starts no build: launchers download the
 list themselves.
 
