@@ -1,0 +1,5 @@
+# build output
+/dn-launcher
+/dn-launcher.exe
+/dreadnought-launcher.exe
+*.exe~
