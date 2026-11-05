@@ -3,3 +3,5 @@
 /dn-launcher.exe
 /dreadnought-launcher.exe
 *.exe~
+/dist/
+/notes.md

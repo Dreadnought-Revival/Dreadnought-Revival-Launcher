@@ -16,6 +16,29 @@ The project is three repositories under
 [Dreadnought-Revival-Page](https://github.com/Dreadnought-Revival/Dreadnought-Revival-Page)
 (the project website, in progress).
 
+## Playtest releases
+
+Every push to `main` (and a manual run from the Actions tab) runs
+`.github/workflows/release.yml`: `go vet` and `go test` on Windows, then a
+build that is published as a release named **Playtest build #N** (tag
+`playtest-N`, marked latest). Each release carries:
+
+- `dn-launcher.exe`: the playtest build, server and CA built in (one download);
+- `dreadnought-launcher-linux.tar.gz`: that exe with the Linux script, icon and
+  README.txt;
+- `dn-launcher-generic.exe`: no server built in (needs `dn-launcher.json` and
+  `ca.crt` beside it);
+- `SHA256SUMS.txt`, and in the notes the CA fingerprint testers should see.
+
+The server settings come from the repository's Actions settings, never from the
+code: secrets `DN_SERVER` (host name) and `DN_CA_CERT` (the server's
+`certs/ca.crt`, PEM), variable `DN_WEB_PORT` (e.g. `8443`). Without the two
+secrets only the generic build is published. After the server's CA is
+regenerated, update `DN_CA_CERT` and re-run the workflow.
+
+The playtest exe contains the server's host name, and the releases of this
+public repository can be downloaded by anyone.
+
 ## Build
 
 Windows (cross-compiled from any OS):

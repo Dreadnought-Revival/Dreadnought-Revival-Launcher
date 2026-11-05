@@ -1,0 +1,138 @@
+name: Playtest release
+
+# Every push to main (and a manual run) builds the launcher and publishes it as
+# a release, so testers always find the newest build under Releases.
+#
+# The playtest build has the server built in, so a tester downloads one file:
+#   secret   DN_SERVER    the server's public host name (never committed)
+#   secret   DN_CA_CERT   the server's certs/ca.crt, PEM
+#   variable DN_WEB_PORT  the outside port for sign-in/news (e.g. 8443); optional
+# Without DN_SERVER/DN_CA_CERT the job still publishes the generic build only.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: "1.25.x"
+  GOWORK: "off"
+
+jobs:
+  test:
+    name: Test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test -count=1 ./...
+
+  release:
+    name: Build and release
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+          DN_SERVER: ${{ secrets.DN_SERVER }}
+          DN_CA_CERT: ${{ secrets.DN_CA_CERT }}
+          DN_WEB_PORT: ${{ vars.DN_WEB_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Generic: no server built in; needs dn-launcher.json + ca.crt beside it.
+          go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/dn-launcher-generic.exe .
+          if [ -n "${DN_SERVER}" ] && [ -n "${DN_CA_CERT}" ]; then
+            ca_b64=$(printf '%s\n' "${DN_CA_CERT}" | base64 -w0)
+            go build -trimpath -ldflags "-s -w -H windowsgui \
+              -X main.defaultServer=${DN_SERVER} \
+              -X main.defaultWebPort=${DN_WEB_PORT} \
+              -X main.defaultCA=${ca_b64}" -o dist/dn-launcher.exe .
+            printf '%s\n' "${DN_CA_CERT}" > dist/ca.crt
+            openssl x509 -in dist/ca.crt -noout -fingerprint -sha256 | sed 's/^.*=//' > dist/ca-fingerprint.txt
+            rm dist/ca.crt
+            # Linux bundle: the same exe run inside the game's Wine/Proton prefix.
+            b=dreadnought-launcher-linux
+            mkdir -p "dist/$b"
+            cp dist/dn-launcher.exe linux/dn-launcher-linux.sh linux/README.txt "dist/$b/"
+            cp winres/icon.png "dist/$b/icon.png"
+            chmod +x "dist/$b/dn-launcher-linux.sh"
+            tar -C dist -czf "dist/$b.tar.gz" "$b"
+            rm -r "dist/$b"
+            echo "PLAYTEST=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::DN_SERVER / DN_CA_CERT not set: publishing the generic build only"
+            echo "PLAYTEST=0" >> "$GITHUB_ENV"
+          fi
+          (cd dist && sha256sum -- *.exe $(ls *.tar.gz 2>/dev/null) > SHA256SUMS.txt)
+
+      - name: Release notes
+        run: |
+          set -euo pipefail
+          short=$(git rev-parse --short HEAD)
+          {
+            echo "Playtest build #${GITHUB_RUN_NUMBER} from \`${short}\` ($(date -u +%Y-%m-%d))."
+            echo
+            if [ "${PLAYTEST}" = "1" ]; then
+              echo "**Windows:** download \`dn-launcher.exe\` and run it. It is already set up for the playtest server."
+              echo "On first start it asks to install the server's testing certificate. Its SHA-256 fingerprint must be:"
+              echo
+              echo "\`$(cat dist/ca-fingerprint.txt)\`"
+              echo
+              echo "**Linux (Steam/Proton or Wine):** download \`dreadnought-launcher-linux.tar.gz\`, unpack it and run \`./dn-launcher-linux.sh\` (see README.txt inside)."
+              echo
+            fi
+            echo "\`dn-launcher-generic.exe\` has no server built in: put \`dn-launcher.json\` (\`{\"server\": \"...\"}\`) and the server's \`ca.crt\` beside it."
+            echo
+            echo "### Changes"
+            prev=$(git describe --tags --abbrev=0 --match 'playtest-*' 2>/dev/null || true)
+            if [ -n "${prev}" ]; then
+              git log --no-merges --format='- %s (%h)' "${prev}..HEAD"
+            else
+              git log --no-merges --format='- %s (%h)' -n 20
+            fi
+            echo
+            echo "### SHA-256"
+            echo '```'
+            cat dist/SHA256SUMS.txt
+            echo '```'
+          } > notes.md
+          rm -f dist/ca-fingerprint.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="playtest-${GITHUB_RUN_NUMBER}"
+          gh release create "${tag}" dist/* \
+            --target "${GITHUB_SHA}" \
+            --title "Playtest build #${GITHUB_RUN_NUMBER}" \
+            --notes-file notes.md \
+            --latest
