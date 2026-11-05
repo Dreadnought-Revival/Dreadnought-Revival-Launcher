@@ -9,6 +9,13 @@ certificate, and starts the game pointed at the server.
 Moved here from the server repository's `dn-launcher/` folder (with its git
 history) on 2026-11-05.
 
+The project is three repositories under
+[Dreadnought-Revival](https://github.com/Dreadnought-Revival):
+[Dreadnought-Revival-server](https://github.com/Dreadnought-Revival/Dreadnought-Revival-server)
+(the backend), this launcher, and
+[Dreadnought-Revival-Page](https://github.com/Dreadnought-Revival/Dreadnought-Revival-Page)
+(the project website, in progress).
+
 ## Build
 
 Windows (cross-compiled from any OS):
