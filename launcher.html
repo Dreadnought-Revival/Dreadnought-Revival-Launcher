@@ -285,7 +285,7 @@
     </div>
   </section>
 
-  <div class="copyright">DREADNOUGHT COMMUNITY PRIVATE SERVER. Not affiliated with Grey Box, Six Foot or YAGER.</div>
+  <div class="copyright">DREADNOUGHT COMMUNITY PRIVATE SERVER. Not affiliated with Grey Box, Six Foot or YAGER.<span id="version"></span></div>
   <div id="where"></div>
   <div id="note"></div>
 </div>
@@ -644,6 +644,7 @@
     loadSkin();
     const s = state = await dnInit();
     setServer(s.server, s.serverIP);
+    if (s.version) $('version').textContent = '  \u00b7  LAUNCHER ' + (s.version === 'dev' ? 'dev build' : 'v' + s.version);
     showGame(s.game);
     // The browser version can also take a typed path (the folder dialog it
     // opens may appear behind the browser).

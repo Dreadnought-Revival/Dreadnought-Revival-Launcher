@@ -39,12 +39,12 @@
         "info": {
           "0409": {
             "CompanyName": "Dreadnought Revival Project",
-            "FileDescription": "Dreadnought Private Server Launcher",
+            "FileDescription": "Dreadnought Revival launcher",
             "FileVersion": "1.0.0.0",
-            "InternalName": "dn-launcher",
+            "InternalName": "Dreadnought-Revival",
             "LegalCopyright": "Community project. Dreadnought is a trademark of its respective owners.",
-            "OriginalFilename": "dn-launcher.exe",
-            "ProductName": "Dreadnought Private Server Launcher",
+            "OriginalFilename": "Dreadnought-Revival.exe",
+            "ProductName": "Dreadnought Revival",
             "ProductVersion": "1.0.0.0"
           }
         }

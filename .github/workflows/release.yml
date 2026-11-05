@@ -55,6 +55,16 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      - name: Version
+        # VERSION holds major.minor (bump it by hand); the build number is the
+        # patch, so every release has its own version: v1.0.3, v1.0.4, ...
+        run: |
+          set -euo pipefail
+          base=$(tr -d ' \r\n' < VERSION)
+          [[ "$base" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "::error::VERSION must be major.minor, got '$base'"; exit 1; }
+          echo "VERSION=${base}.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
       - name: Build
         env:
           GOOS: windows
@@ -63,16 +73,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/dn-launcher.exe .
+          # The exe's version resource (Properties > Details) carries the version too.
+          GOOS= GOARCH= go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64 \
+            --file-version "${VERSION}.0" --product-version "${VERSION}"
+          go build -trimpath -ldflags "-s -w -H windowsgui -X main.launcherVersion=${VERSION}" \
+            -o dist/Dreadnought-Revival.exe .
           # Linux bundle: the same exe run inside the game's Wine/Proton prefix.
-          b=dreadnought-launcher-linux
+          b=Dreadnought-Revival-linux
           mkdir -p "dist/$b"
-          cp dist/dn-launcher.exe linux/dn-launcher-linux.sh linux/README.txt "dist/$b/"
+          cp dist/Dreadnought-Revival.exe linux/dn-launcher-linux.sh linux/README.txt "dist/$b/"
           cp winres/icon.png "dist/$b/icon.png"
           chmod +x "dist/$b/dn-launcher-linux.sh"
           tar -C dist -czf "dist/$b.tar.gz" "$b"
           rm -r "dist/$b"
-          (cd dist && sha256sum -- dn-launcher.exe "$b.tar.gz" > SHA256SUMS.txt)
+          (cd dist && sha256sum -- Dreadnought-Revival.exe "$b.tar.gz" > SHA256SUMS.txt)
 
       - name: Listed servers
         # The fingerprints the certificate screen will show, for the notes.
@@ -95,12 +109,12 @@ jobs:
           set -euo pipefail
           short=$(git rev-parse --short HEAD)
           {
-            echo "Playtest build #${GITHUB_RUN_NUMBER} from \`${short}\` ($(date -u +%Y-%m-%d))."
+            echo "Dreadnought Revival launcher **v${VERSION}**, built ${BUILD_DATE} from \`${short}\`."
             echo
-            echo "**Windows:** download \`dn-launcher.exe\` and run it. Pick a server (the first listed one is chosen for you),"
+            echo "**Windows:** download \`Dreadnought-Revival.exe\` and run it. Pick a server (the first listed one is chosen for you),"
             echo "then install its certificate when asked; the fingerprint on that screen must match the one below."
             echo
-            echo "**Linux (Steam/Proton or Wine):** download \`dreadnought-launcher-linux.tar.gz\`, unpack it and run \`./dn-launcher-linux.sh\` (see README.txt inside)."
+            echo "**Linux (Steam/Proton or Wine):** download \`Dreadnought-Revival-linux.tar.gz\`, unpack it and run \`./dn-launcher-linux.sh\` (see README.txt inside)."
             echo
             echo "### Servers in this build's list"
             echo "(The launcher downloads \`serverlist.yaml\` again at every start, so later list changes reach this build too.)"
@@ -108,7 +122,7 @@ jobs:
             cat servers.md
             echo
             echo "### Changes"
-            prev=$(git describe --tags --abbrev=0 --match 'playtest-*' 2>/dev/null || true)
+            prev=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || git describe --tags --abbrev=0 --match 'playtest-*' 2>/dev/null || true)
             if [ -n "${prev}" ]; then
               git log --no-merges --format='- %s (%h)' "${prev}..HEAD"
             else
@@ -126,9 +140,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="playtest-${GITHUB_RUN_NUMBER}"
+          tag="v${VERSION}"
           gh release create "${tag}" dist/* \
             --target "${GITHUB_SHA}" \
-            --title "Playtest build #${GITHUB_RUN_NUMBER}" \
+            --title "Dreadnought Revival v${VERSION} (${BUILD_DATE})" \
             --notes-file notes.md \
             --latest

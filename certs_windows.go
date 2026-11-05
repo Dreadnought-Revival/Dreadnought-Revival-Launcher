@@ -17,7 +17,7 @@ package main
 //
 // The limit is that this runs only when the launcher does: a player who stops
 // playing and never opens it again keeps the certificate until they remove it
-// (certmgr.msc) or run "dn-launcher.exe --remove-certs" (removes every one in
+// (certmgr.msc) or run "Dreadnought-Revival.exe --remove-certs" (removes every one in
 // the record; meant for an uninstaller).
 
 import (

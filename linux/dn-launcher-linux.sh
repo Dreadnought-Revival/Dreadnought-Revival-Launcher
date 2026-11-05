@@ -6,7 +6,7 @@
 # must trust, the sign-in token it reads from its registry, its start
 # arguments -- has to live INSIDE that same Wine/Proton prefix. So this script
 # does not reimplement the launcher: it finds the game and its prefix and runs
-# the Windows launcher (dn-launcher.exe, next to this script) there.
+# the Windows launcher (Dreadnought-Revival.exe, next to this script) there.
 #
 #   ./dn-launcher-linux.sh                 start (sign-in opens in your browser)
 #   ./dn-launcher-linux.sh --install       add a menu entry with the icon
@@ -27,7 +27,9 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dreadnought-launcher"
 # shellcheck disable=SC1091
 [ -f "$CONFIG_DIR/config" ] && . "$CONFIG_DIR/config"
 
-EXE="$HERE/dn-launcher.exe"
+# Dreadnought-Revival.exe since 2026-11-05; dn-launcher.exe in older bundles.
+EXE="$HERE/Dreadnought-Revival.exe"
+[ -f "$EXE" ] || EXE="$HERE/dn-launcher.exe"
 APP_ID=835860
 
 die() { echo "dn-launcher: $*" >&2; exit 1; }
@@ -50,7 +52,7 @@ EOF
   exit 0
 fi
 
-[ -f "$EXE" ] || die "dn-launcher.exe not found next to this script ($HERE)"
+[ -f "$EXE" ] || die "Dreadnought-Revival.exe not found next to this script ($HERE)"
 
 # --- Steam libraries --------------------------------------------------------
 steam_roots() {

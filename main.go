@@ -392,6 +392,11 @@ var defaultServer = ""
 // defaultWebPort goes with defaultServer: -X main.defaultWebPort=8443.
 var defaultWebPort = ""
 
+// launcherVersion is set by the release build (-X main.launcherVersion=1.0.N,
+// .github/workflows/release.yml: VERSION plus the build number); "dev" for a
+// local build. Shown in the console banner and the window's footer.
+var launcherVersion = "dev"
+
 func defaultConfig() Config {
 	return Config{
 		Server:        defaultServer,
@@ -513,7 +518,7 @@ func findGameBinary(exeDir string, cfg Config) string {
 
 func main() {
 	fmt.Println("=================================================")
-	fmt.Println("  Dreadnought Private Server Launcher v1.0")
+	fmt.Println("  Dreadnought Revival launcher " + launcherVersion)
 	fmt.Println("=================================================")
 	fmt.Println()
 
@@ -592,7 +597,7 @@ func startGame(exeDir string, cfg Config, jwtToken, username string) (int, error
 	if gamePath == "" {
 		fmt.Fprintln(os.Stderr, "[!] Could not find the game.")
 		fmt.Fprintln(os.Stderr, "    Choose your Dreadnought folder in the launcher window (Game folder, Change),")
-		fmt.Fprintln(os.Stderr, "    put dn-launcher.exe in your Dreadnought install directory,")
+		fmt.Fprintln(os.Stderr, "    put Dreadnought-Revival.exe in your Dreadnought install directory,")
 		fmt.Fprintln(os.Stderr, "    or set 'game_path' in dn-launcher.json to the full path.")
 		return 0, errors.New("could not find Dreadnought -- choose your game folder under Game folder")
 	}

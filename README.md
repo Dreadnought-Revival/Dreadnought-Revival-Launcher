@@ -16,19 +16,25 @@ The project is three repositories under
 [Dreadnought-Revival-Page](https://github.com/Dreadnought-Revival/Dreadnought-Revival-Page)
 (the project website, in progress).
 
-## Playtest releases
+## Releases
 
 Every push to `main` (and a manual run from the Actions tab) runs
 `.github/workflows/release.yml`: `go vet` and `go test` on Windows, then a
-build that is published as a release named **Playtest build #N** (tag
-`playtest-N`, marked latest). Each release carries:
+build that is published as a release, marked latest. Releases are versioned:
+`VERSION` holds major.minor (bump it by hand for a bigger change), and the
+build number is the patch, so the tags go `v1.0.3`, `v1.0.4`, ...; the title
+carries the build date, e.g. **Dreadnought Revival v1.0.3 (2026-11-05)**. The
+version is built into the exe (shown in the console banner, the window's
+footer, and Windows' Properties > Details). Each release carries:
 
-- `dn-launcher.exe`, the one launcher for everybody: its servers come from the
-  server list (below), so nothing about a server is built in;
-- `dreadnought-launcher-linux.tar.gz`: that exe with the Linux script, icon and
+- `Dreadnought-Revival.exe`, the one launcher for everybody: its servers come
+  from the server list (below), so nothing about a server is built in;
+- `Dreadnought-Revival-linux.tar.gz`: that exe with the Linux script, icon and
   README.txt;
 - `SHA256SUMS.txt`, and in the notes each listed server's certificate
   fingerprint.
+
+(Builds before 2026-11-05 were called `playtest-N` and shipped `dn-launcher.exe`.)
 
 A change to `serverlist.yaml` alone starts no build: launchers download the
 list themselves.
@@ -83,7 +89,7 @@ again, except the one of the server in use. Windows asks the player to
 confirm; a refusal is asked again after 7 days. Settings lists the recorded
 certificates with a *Remove* button. This only runs while the launcher does: a
 player who stops playing keeps the certificate until they remove it
-(`certmgr.msc`) or run `dn-launcher.exe --remove-certs`, which removes every
+(`certmgr.msc`) or run `Dreadnought-Revival.exe --remove-certs`, which removes every
 recorded one (meant for an uninstaller). Only certificates in that record are
 ever removed.
 
@@ -92,7 +98,7 @@ ever removed.
 Windows (cross-compiled from any OS):
 
 ```bash
-GOOS=windows GOARCH=amd64 go build -o dn-launcher.exe .
+GOOS=windows GOARCH=amd64 go build -o Dreadnought-Revival.exe .
 ```
 
 Settings can be built into a distributed launcher, so testers need no
@@ -101,12 +107,12 @@ Settings can be built into a distributed launcher, so testers need no
 ```bash
 GOOS=windows go build -ldflags "-H windowsgui \
   -X main.defaultServer=play.example.org -X main.defaultWebPort=8443 \
-  -X main.defaultCA=$(base64 -w0 /path/to/server/certs/ca.crt)" -o dn-launcher.exe .
+  -X main.defaultCA=$(base64 -w0 /path/to/server/certs/ca.crt)" -o Dreadnought-Revival.exe .
 ```
 
 `-H windowsgui` opens the desktop window with no console flashing up (the
 console flow opens its own console when it needs one). `defaultCA` builds the
-server's CA into the exe, so testers download **only `dn-launcher.exe`**. On
+server's CA into the exe, so testers download **only `Dreadnought-Revival.exe`**. On
 first start the window shows an **Install the public testing certificate**
 screen with the CA's SHA-256 fingerprint (publish it so testers can compare,
 `openssl x509 -in certs/ca.crt -noout -fingerprint -sha256`); Play stays
@@ -125,7 +131,7 @@ Tests: `go test ./...` (most tests are Windows-only; run them with
 ## Configure
 
 Put the server's public hostname or IP in `dn-launcher.json` beside
-`dn-launcher.exe`, and ship the server's `ca.crt` in the same folder (unless it
+`Dreadnought-Revival.exe`, and ship the server's `ca.crt` in the same folder (unless it
 is built in, see above):
 
 ```json
@@ -156,7 +162,7 @@ news use 443; the game's own ports are unaffected).
 
 ## Use
 
-Run `dn-launcher.exe`. It opens a **desktop window** (Microsoft Edge WebView2,
+Run `Dreadnought-Revival.exe`. It opens a **desktop window** (Microsoft Edge WebView2,
 part of Windows 11 and installed with Edge on most Windows 10 PCs) with
 **Sign in** / **Create account**, then a home screen with the server's news
 tiles (the server's `/v2/dreadnought/launcher/dn/tiles/`), a server status
@@ -173,7 +179,7 @@ original ones, read at start from `DreadnoughtLauncher.exe` in the player's own
 game folder (`origassets_windows.go`; the file is a Solid State Networks skin
 archive the code decrypts with a password it finds in that same exe). Nothing
 of the original launcher is copied into this repository or into
-`dn-launcher.exe`; without that file the window keeps the same layout in plain
+`Dreadnought-Revival.exe`; without that file the window keeps the same layout in plain
 colours.
 
 Display scaling: the exe is per-monitor DPI aware, so the window is 1105x620
@@ -184,7 +190,7 @@ resizes it for that monitor.
 
 Without WebView2 (detected before anything is created), or with `--console`,
 it falls back to the older flow: a console window and the same sign-in page in
-the default browser. `dn-launcher.exe --sign-out` clears the stored
+the default browser. `Dreadnought-Revival.exe --sign-out` clears the stored
 credentials.
 
 ## Linux
@@ -198,7 +204,7 @@ Proton prefix when Steam created one (else Wine with
 `DN_GAME_PATH`. WebView2 is not available under Wine, so the launcher opens in
 the Linux browser instead: the same page as the desktop window (sign-in, the
 certificate, the game folder, options, Play), served on a random loopback port
-(`browser_windows.go`). Ship the script with `dn-launcher.exe` and `icon.png`
+(`browser_windows.go`). Ship the script with `Dreadnought-Revival.exe` and `icon.png`
 beside it; `--install` adds a menu entry.
 
 ## The rule for this repository

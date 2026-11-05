@@ -54,7 +54,7 @@ func (a *launcherAPI) Init() map[string]any {
 	settings := loadSettings()
 	out := map[string]any{"signedIn": a.token != "", "username": a.username, "server": server,
 		"serverIP": a.serverIP(), "game": gameInfo(a.exeDir, a.cfg),
-		"logWindow": settings.LogWindow, "verboseLog": settings.VerboseLog,
+		"logWindow": settings.LogWindow, "verboseLog": settings.VerboseLog, "version": launcherVersion,
 		"servers": a.serverInfo()}
 	machineMu.RLock()
 	ca, caSource := pendingCA, pendingCASource
