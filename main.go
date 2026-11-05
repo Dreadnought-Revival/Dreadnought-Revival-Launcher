@@ -372,9 +372,15 @@ type Config struct {
 	// machine and user; set it to carry an account to another machine, or to
 	// recover one after the identity file was lost.
 	PlayerID string `json:"player_id"`
-	// caFile is the saved CA of a server picked in the launcher window
-	// (servers_windows.go); empty = ca.crt beside the launcher / built-in.
-	caFile string
+	// ServerListURL replaces the server list's download address
+	// (serverlist.go); "none" turns the download off.
+	ServerListURL string `json:"server_list_url"`
+	// The CA of a server picked in the launcher window (servers_windows.go):
+	// caDER from the server list, or caFile kept from the server; neither =
+	// ca.crt beside the launcher / built-in. caSource says which.
+	caDER    []byte
+	caFile   string
+	caSource string
 }
 
 // defaultServer is the server a distributed launcher points at when its
@@ -513,6 +519,16 @@ func main() {
 
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
+
+	// --remove-certs: take every server certificate the launcher knows of out
+	// of the Trusted Root store (certs_windows.go), e.g. from an uninstaller.
+	if flagRequested("remove-certs") {
+		ensureConsole()
+		if removeAllCerts() > 0 {
+			os.Exit(1)
+		}
+		return
+	}
 
 	cfg, err := applySavedServer(exeDir, loadConfig(exeDir))
 	if err != nil {

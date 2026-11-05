@@ -30,6 +30,10 @@ type launcherAPI struct {
 	mu       sync.Mutex
 	token    string
 	username string
+
+	// netMu keeps a server switch (servers_windows.go) from running while the
+	// news or Play is using the server setup, and the other way round.
+	netMu sync.Mutex
 }
 
 func newLauncherAPI(exeDir string, cfg Config, owner func() uintptr) *launcherAPI {
@@ -52,9 +56,12 @@ func (a *launcherAPI) Init() map[string]any {
 		"serverIP": a.serverIP(), "game": gameInfo(a.exeDir, a.cfg),
 		"logWindow": settings.LogWindow, "verboseLog": settings.VerboseLog,
 		"servers": a.serverInfo()}
-	if pendingCA != nil && !caTrusted(pendingCA) {
-		name, fp := caSummary(pendingCA)
-		out["cert"] = map[string]any{"name": name, "fingerprint": fp}
+	machineMu.RLock()
+	ca, caSource := pendingCA, pendingCASource
+	machineMu.RUnlock()
+	if ca != nil && !caTrusted(ca) {
+		name, fp := caSummary(ca)
+		out["cert"] = map[string]any{"name": name, "fingerprint": fp, "source": caSource, "server": currentServerName}
 	}
 	return out
 }
@@ -121,14 +128,25 @@ func (a *launcherAPI) SetOption(name string, on bool) bool {
 }
 
 func (a *launcherAPI) InstallCert() map[string]any {
-	if pendingCA == nil || caTrusted(pendingCA) {
+	machineMu.RLock()
+	ca := pendingCA
+	machineMu.RUnlock()
+	if ca == nil || caTrusted(ca) {
 		return map[string]any{"ok": true}
 	}
-	if err := installCA(pendingCA); err != nil || !caTrusted(pendingCA) {
+	if err := installCA(ca); err != nil || !caTrusted(ca) {
 		return map[string]any{"ok": false, "error": "The certificate was not installed. " +
 			"Windows asks you to confirm it -- choose Yes to continue."}
 	}
+	noteCertUsed(ca, currentServerName) // starts its 30 days (certs_windows.go)
 	return map[string]any{"ok": true}
+}
+
+// currentCA is the CA of the server in use (nil without one).
+func currentCA() []byte {
+	machineMu.RLock()
+	defer machineMu.RUnlock()
+	return pendingCA
 }
 
 func (a *launcherAPI) Submit(mode, username, identifier, password string) map[string]any {
@@ -178,6 +196,8 @@ func (a *launcherAPI) serverIP() string {
 }
 
 func (a *launcherAPI) News() map[string]any {
+	a.netMu.Lock()
+	defer a.netMu.Unlock()
 	// Looked up again, so the window shows the address Play will use and a
 	// lookup that failed at start gets another chance.
 	cfg := a.config()
@@ -188,6 +208,7 @@ func (a *launcherAPI) News() map[string]any {
 	if err != nil {
 		return map[string]any{"online": false, "error": err.Error(), "serverIP": a.serverIP()}
 	}
+	noteCertUsed(currentCA(), currentServerName) // reached the server with it
 	return map[string]any{"online": true, "tiles": tiles, "serverIP": a.serverIP()}
 }
 
@@ -231,14 +252,16 @@ func (a *launcherAPI) OpenURL(url string) bool {
 // Play starts the game. ok means the game was started and the front end
 // should close.
 func (a *launcherAPI) Play() map[string]any {
+	a.netMu.Lock()
+	defer a.netMu.Unlock()
 	a.mu.Lock()
 	token, username := a.token, a.username
 	a.mu.Unlock()
-	if pendingCA != nil && !caTrusted(pendingCA) {
+	if ca := currentCA(); ca != nil && !caTrusted(ca) {
 		return map[string]any{"ok": false, "cert": true,
 			"error": "Install the public testing certificate first; the game cannot connect without it."}
 	}
-	if findGameBinary(a.exeDir, a.cfg) == "" {
+	if findGameBinary(a.exeDir, a.config()) == "" {
 		return map[string]any{"ok": false, "game": true,
 			"error": "Dreadnought was not found. Choose your game folder above."}
 	}
@@ -248,6 +271,7 @@ func (a *launcherAPI) Play() map[string]any {
 	if _, err := startGame(a.exeDir, a.config(), token, username); err != nil {
 		return map[string]any{"ok": false, "error": capitalise(err.Error()), "serverIP": a.serverIP()}
 	}
+	noteCertUsed(currentCA(), currentServerName)
 	return map[string]any{"ok": true, "serverIP": a.serverIP()}
 }
 

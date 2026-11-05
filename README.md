@@ -23,21 +23,69 @@ Every push to `main` (and a manual run from the Actions tab) runs
 build that is published as a release named **Playtest build #N** (tag
 `playtest-N`, marked latest). Each release carries:
 
-- `dn-launcher.exe`: the playtest build, server and CA built in (one download);
+- `dn-launcher.exe`, the one launcher for everybody: its servers come from the
+  server list (below), so nothing about a server is built in;
 - `dreadnought-launcher-linux.tar.gz`: that exe with the Linux script, icon and
   README.txt;
-- `dn-launcher-generic.exe`: no server built in (needs `dn-launcher.json` and
-  `ca.crt` beside it);
-- `SHA256SUMS.txt`, and in the notes the CA fingerprint testers should see.
+- `SHA256SUMS.txt`, and in the notes each listed server's certificate
+  fingerprint.
 
-The server settings come from the repository's Actions settings, never from the
-code: secrets `DN_SERVER` (host name) and `DN_CA_CERT` (the server's
-`certs/ca.crt`, PEM), variable `DN_WEB_PORT` (e.g. `8443`). Without the two
-secrets only the generic build is published. After the server's CA is
-regenerated, update `DN_CA_CERT` and re-run the workflow.
+A change to `serverlist.yaml` alone starts no build: launchers download the
+list themselves.
 
-The playtest exe contains the server's host name, and the releases of this
-public repository can be downloaded by anyone.
+## Servers
+
+The launcher window's **Server** menu (and *Change…* under the sign-in boxes
+and in Settings) lists, in this order:
+
+1. the server the launcher was built or configured for, if any (`server` in
+   `dn-launcher.json`, or `-X main.defaultServer`, see Build);
+2. the servers in [`serverlist.yaml`](serverlist.yaml);
+3. servers the player added by address (`host` or `host:web_port`), removable
+   with the ✕.
+
+The choice is remembered per Windows user (`settings.json` under
+`%LOCALAPPDATA%\DreadnoughtPrivateServer`). With nothing chosen and nothing
+built in, the first listed server is used, so a fresh download needs no setup.
+Each server keeps its own remembered sign-in, since accounts live on a server.
+
+**The server list.** `serverlist.yaml` names each server's DNS name, its ports
+(`web_port` for sign-in and news, `gateway_port` and `firmament_port` for the
+game) and its CA certificate; the file itself documents every field. The
+launcher downloads it from this repository's `main` branch at every start
+(`serverlist.go`; at most 6 s), keeps the last good download, and falls back to
+the copy built into the exe. A list that does not parse never replaces a good
+one, and a bad entry is left out without hiding the others. To list a
+community server, open a pull request adding an entry. A server that makes a
+new CA must update its `ca_cert`, or launchers keep refusing its new
+certificate. `server_list_url` in `dn-launcher.json` points one install at
+another list (`"none"` turns the download off).
+
+**Certificates.** The certificate screen always shows the fingerprint before
+anything is installed, and says where the certificate came from:
+
+- a listed server's CA comes from the list, which GitHub's verified HTTPS
+  vouches for;
+- a server added by address is asked for its CA (`GET /dn/ca.crt` on its
+  gateway; the server repository's `gateway/main.go` serves it). The launcher
+  checks that this CA really signed the connection and keeps it as
+  `servers\<server>.crt`; the player compares the fingerprint with the one
+  the operator publishes (trust on first use). If that server later makes a
+  new CA, remove the server and add it again;
+- the built-in server's CA is `ca.crt` beside the exe or the built-in one, as
+  before.
+
+**Removing unused certificates** (`certs_windows.go`). The launcher records
+each server certificate it installed or found trusted, and when it last
+reached that server with it (news loaded or the game started). At start, a
+certificate unused for **30 days** is removed from the Trusted Root store
+again, except the one of the server in use. Windows asks the player to
+confirm; a refusal is asked again after 7 days. Settings lists the recorded
+certificates with a *Remove* button. This only runs while the launcher does: a
+player who stops playing keeps the certificate until they remove it
+(`certmgr.msc`) or run `dn-launcher.exe --remove-certs`, which removes every
+recorded one (meant for an uninstaller). Only certificates in that record are
+ever removed.
 
 ## Build
 
@@ -118,7 +166,7 @@ on the server rather than being derived from the machine, the same login works
 from any PC.
 
 The window is laid out like the original Dreadnought launcher: borderless
-1105x620, the logo and a menu (Settings, Game logs, Sign out) top left, PLAY
+1105x620, the logo and a menu (Server, Settings, Game logs, Sign out) top left, PLAY
 GAME top right, the news carousel beside a news panel, and sign-in / create
 account as two boxes side by side. Its background, logo and fonts are the
 original ones, read at start from `DreadnoughtLauncher.exe` in the player's own
@@ -163,6 +211,8 @@ itself is never patched.
 ## Credits
 
 - **Legojedi** — the launcher icon.
+- **starveil-bunny** — the server picker and adding servers by address
+  (PR #81 in the old repository).
 
 ## License
 

@@ -50,6 +50,9 @@ const browserBridgeJS = `<script>
   window.dnAssets = () => dnCall('assets');
   window.dnOpenURL = (url) => dnCall('openURL', [url]);
   window.dnRemoveServer = (id) => dnCall('removeServer', [id]);
+  window.dnCleanCerts = () => dnCall('cleanCerts');
+  window.dnCerts = () => dnCall('certs');
+  window.dnRemoveCert = (h) => dnCall('removeCert', [h]);
   window.dnUseServer = (id) => { dnCall('useServer', [id]).then(dnServerResult, e => dnServerResult({ ok: false, error: String(e) })); };
   window.dnAddServer = (n, a) => { dnCall('addServer', [n, a]).then(dnServerResult, e => dnServerResult({ ok: false, error: String(e) })); };
   window.dnSubmit = (m, u, i, p) => { dnCall('submit', [m, u, i, p]).then(dnAuthResult, e => dnAuthResult({ ok: false, error: String(e) })); };
@@ -156,6 +159,12 @@ func runBrowserLauncher(exeDir string, cfg Config) error {
 			out = api.Assets()
 		case "openURL":
 			out = api.OpenURL(str(0))
+		case "cleanCerts":
+			out = api.CleanCerts()
+		case "certs":
+			out = api.Certs()
+		case "removeCert":
+			out = api.RemoveCert(str(0))
 		case "removeServer":
 			out = api.RemoveServer(str(0))
 		case "useServer":

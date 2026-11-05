@@ -1,0 +1,67 @@
+# Servers the launcher offers in its server picker.
+#
+# The launcher downloads this file from the main branch of
+# github.com/Dreadnought-Revival/Dreadnought-Revival-Launcher every time it
+# starts (falling back to its last download, then to the copy built into it),
+# so a change here reaches every player without a new launcher. To list a
+# community server, open a pull request adding an entry.
+#
+#   id              stable key; never change it (sign-ins and settings use it)
+#   name            what the picker shows
+#   description     one line under the name (optional)
+#   host            the server's DNS name (or IP); looked up again before every Play
+#   web_port        TCP port of the HTTPS gateway: launcher sign-in and news (443 if omitted)
+#   gateway_port    TCP port of the game's web services, -GatewayPort (65443 if omitted)
+#   firmament_port  TCP port of the game's Firmament connection, -YFirmamentPort (48843 if omitted)
+#   ca_cert         the server's CA certificate (its certs/ca.crt, PEM). Optional:
+#                   with it, the launcher installs exactly this certificate and
+#                   shows "from the official server list"; without it, it asks
+#                   the server for its certificate and the player checks the
+#                   fingerprint, as for a server added by hand. A server that
+#                   regenerates its CA must update this entry.
+#
+# Battle-server (UDP) ports need no entry: the server tells the game each
+# match's port.
+
+servers:
+  - id: revival
+    name: Dreadnought Revival
+    description: The project's own server (playtest)
+    host: dread.monaxe.de
+    web_port: 8443
+    gateway_port: 65443
+    firmament_port: 48843
+    ca_cert: |
+      -----BEGIN CERTIFICATE-----
+      MIIFwzCCA6ugAwIBAgIUc6l0whmhEryzTBSl/G0EWMBqskgwDQYJKoZIhvcNAQEL
+      BQAwcTELMAkGA1UEBhMCVVMxEDAOBgNVBAgMB1ByaXZhdGUxDzANBgNVBAcMBlNl
+      cnZlcjEjMCEGA1UECgwaRHJlYWRub3VnaHQgUHJpdmF0ZSBTZXJ2ZXIxGjAYBgNV
+      BAMMEURyZWFkbm91Z2h0IFBTIENBMB4XDTI2MDkyNzE5MTQyN1oXDTM2MDkyNDE5
+      MTQyN1owcTELMAkGA1UEBhMCVVMxEDAOBgNVBAgMB1ByaXZhdGUxDzANBgNVBAcM
+      BlNlcnZlcjEjMCEGA1UECgwaRHJlYWRub3VnaHQgUHJpdmF0ZSBTZXJ2ZXIxGjAY
+      BgNVBAMMEURyZWFkbm91Z2h0IFBTIENBMIICIjANBgkqhkiG9w0BAQEFAAOCAg8A
+      MIICCgKCAgEAte2duW1cSA1m5ic4oOUmw7Gw0lfFiJ0D/GJ7aNaU6XVR71mkjv9n
+      VONmflUSCtHR+iTlWyoKm+ZriNYVnnaOP8aFH6kbjpql8+PKcsVX7PHaSY8aOcWX
+      w+tqzIfj3gnIlX077P3hVGb4prLtjmPUmk4uwFTSn96J4D12H0ydrIgiP4XtRu7P
+      kisHUBC0ZP8Mcc2cFsWZqR4vaLVDlPBdVQGbB9/K0oW3lUfD3WLnv2QYS3AiGMKV
+      oSAaVW8HxHrB3DrtnGIkzhAFrSKRo0XlPItGnPfchKt6ch07QYYU32n+TIXd1GmZ
+      4ylRAkm36lqHI3m1KNN1mWE8crGSq4Xg8IeCbfuQrNDxwDniwEUzG2GOjAjduIJ/
+      vwXYPKVqt6xAkFgDyAGRPMwESzuD4O0JCDzNaIe8g0A27ih83Z1itap87MyMDEnb
+      LrXu483hHf0gztuQpN76mK7sq9vLZnloNs3FF1AtytHudu9fCSuWCkPK6K9lsBcA
+      Rwf+wUTeUHGFF0DaECEFJsPa/iiSd92huKmAScf9XPSjJO84jtNQXrpXHcL1iKhz
+      SErFN+DI5Uo/CLbXR61XBrb25OwTullcRL0idjReUKk5k+zGk9LhB7WBugXnlXd9
+      43hwssR2tTwXDYAyW4WJiZU/zB6j45MZArGulmEhE+SI5N0B0PzL5WcCAwEAAaNT
+      MFEwHQYDVR0OBBYEFGZ0J6iXcQ1ncYwx8p/ZoO04DMj9MB8GA1UdIwQYMBaAFGZ0
+      J6iXcQ1ncYwx8p/ZoO04DMj9MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQEL
+      BQADggIBAFGaexHMXGAYkWghzTlVhl6fr8ptqIf/Y1CR/8sXHKOf07ji3cXnLdou
+      xR3de77IOX+FQ7HkuGdH9Xbuu46yoZLlgyw1bnzRedYhqxO5arfE7bOVmp4uXcTE
+      k2xysh6gPMHETbE8XxumwyNJ/SsxASzdXEVJjvkzSN7Xvy924groJ7WsgTI+WYN4
+      ybh/saU46fsDORZ/Qb31nHOzGVxXcWx5fwjfi3btgRIOtjkzMjzExgD0/q40/hwt
+      mRy84zx/yt7KFSOPD/pitFR2CoDqPlZ0GVLmuqxZ3Du1fPxsm855+9CxW3vbt9rj
+      wNq02wKEgJ1PA5E0g0E9eftRsnMdDYtp/1MvZakMjzmZ2Dc4ZwFOH+Sgzs1wscg5
+      vj1Z6gj2p4KoUxPguFBvpWPDL8yQQ5Ij3gUUM4vS06Wlc+vgEHfSdfOsqbrtPTOD
+      5BGkZ5w8mGO58splvS9XdtGiHWMLAHUI66+EHrJ92frMOLFc5o3XvW/SxH0TDqK1
+      M5oktxzuBHomTP1IZ0XEGSl0K5RwPUsoJl3c7P+lFLFNy9gTXHPBAuD4BM58EDKY
+      9EH1Zmxye+1w8Un3pY248Hua6ZpwdHrgsiJ+U7n1erO0ya9g2Ybo2Mt6+LaRas3Y
+      t/HgGWAxdEv4DNep5fWf1lHEjzYKWOCkW0N7mfEC/EDeZfKn+0HP
+      -----END CERTIFICATE-----

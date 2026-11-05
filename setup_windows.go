@@ -63,14 +63,17 @@ var (
 
 // launcherTransport is the one HTTP transport the launcher uses.
 func launcherTransport() *http.Transport {
+	machineMu.RLock()
+	caPool, configured, webPort := serverCAPool, serverConfigured, serverWebPort
+	machineMu.RUnlock()
 	t := &http.Transport{}
-	if serverCAPool != nil {
+	if caPool != nil {
 		// Real verification: the shipped CA, under the URL's own host name.
-		t.TLSClientConfig = &tls.Config{RootCAs: serverCAPool, MinVersion: tls.VersionTLS12}
+		t.TLSClientConfig = &tls.Config{RootCAs: caPool, MinVersion: tls.VersionTLS12}
 	} else {
 		t.TLSClientConfig = buildTLSConfig()
 	}
-	if serverConfigured {
+	if configured {
 		dialer := &net.Dialer{Timeout: 15 * time.Second}
 		t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 			_, port, err := net.SplitHostPort(addr)
@@ -80,8 +83,8 @@ func launcherTransport() *http.Transport {
 			if dialIP() == "" {
 				return nil, errors.New("the server's address could not be looked up")
 			}
-			if port == "443" && serverWebPort != "" {
-				port = serverWebPort
+			if port == "443" && webPort != "" {
+				port = webPort
 			}
 			return dialer.DialContext(ctx, network, net.JoinHostPort(dialIP(), port))
 		}
@@ -197,6 +200,21 @@ var defaultCA = ""
 // desktop window asks the player first (dnInstallCert), and the console flow
 // installs it with Windows' own confirmation (ensureCAInstalled).
 var pendingCA []byte
+
+// pendingCASource is where pendingCA came from, for the certificate screen.
+var pendingCASource string
+
+// Where a server's CA came from.
+const (
+	caSourceLauncher = "launcher" // ca.crt beside the launcher, or built in
+	caSourceList     = "list"     // the server list (serverlist.yaml)
+	caSourceServer   = "server"   // asked the server; the player checks the fingerprint
+)
+
+// machineMu guards the server setup above (serverWebPort, serverCAPool,
+// pendingCA, serverConfigured) while the window switches servers
+// (servers_windows.go) and other calls read it.
+var machineMu sync.RWMutex
 
 // readCACert loads ca.crt (PEM or DER) from beside the launcher, else the
 // built-in one. Neither means "nothing to install".
@@ -323,8 +341,13 @@ func installCA(der []byte) error {
 // runMachineSetup points the launcher and the game at cfg.Server. Nothing to
 // do without one (the old gateway_ip/hosts-file setup keeps working).
 func runMachineSetup(exeDir string, cfg *Config) error {
+	machineMu.Lock()
+	defer machineMu.Unlock()
 	// Run again on every server switch (servers_windows.go): start clean.
-	serverDialIP, serverWebPort, serverCAPool, pendingCA = "", "", nil, nil
+	// serverConfigured too: switching to a launcher's gateway_ip-only default
+	// must stop redirecting connections to the previous server's address.
+	setDialIP("")
+	serverWebPort, serverCAPool, pendingCA, pendingCASource, serverConfigured = "", nil, nil, "", false
 	server := strings.TrimSpace(cfg.Server)
 	if server == "" {
 		return nil
@@ -342,12 +365,19 @@ func runMachineSetup(exeDir string, cfg *Config) error {
 		fmt.Printf("[*] Sign-in and news via port %s\n", p)
 	}
 
+	// The CA: from the server list, kept from the server (servers_windows.go),
+	// else ca.crt beside the launcher or the built-in one.
 	var der []byte
 	var err error
-	if cfg.caFile != "" {
+	source := cfg.caSource
+	switch {
+	case cfg.caDER != nil:
+		der = cfg.caDER
+	case cfg.caFile != "":
 		der, err = readCAFile(cfg.caFile)
-	} else {
+	default:
 		der, err = readCACert(exeDir)
+		source = caSourceLauncher
 	}
 	if err != nil {
 		return err
@@ -356,9 +386,9 @@ func runMachineSetup(exeDir string, cfg *Config) error {
 		fmt.Println("[*] No CA certificate for this server; assuming it is already trusted.")
 		return nil
 	}
-	cert, _ := x509.ParseCertificate(der) // validated by readCACert
+	cert, _ := x509.ParseCertificate(der) // validated by readCACert / parseListCA
 	serverCAPool = x509.NewCertPool()
 	serverCAPool.AddCert(cert)
-	pendingCA = der
+	pendingCA, pendingCASource = der, source
 	return nil
 }

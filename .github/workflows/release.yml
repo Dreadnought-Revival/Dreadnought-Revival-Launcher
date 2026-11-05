@@ -3,11 +3,9 @@ name: Playtest release
 # Every push to main (and a manual run) builds the launcher and publishes it as
 # a release, so testers always find the newest build under Releases.
 #
-# The playtest build has the server built in, so a tester downloads one file:
-#   secret   DN_SERVER    the server's public host name (never committed)
-#   secret   DN_CA_CERT   the server's certs/ca.crt, PEM
-#   variable DN_WEB_PORT  the outside port for sign-in/news (e.g. 8443); optional
-# Without DN_SERVER/DN_CA_CERT the job still publishes the generic build only.
+# One exe for everybody: the servers come from serverlist.yaml (built in, and
+# downloaded again by the launcher at every start), each with its CA, so
+# nothing about a server is built in and no secret is needed.
 
 on:
   push:
@@ -15,6 +13,8 @@ on:
     paths-ignore:
       - "**.md"
       - "LICENSE"
+      # Launchers download the list at every start; editing it needs no build.
+      - "serverlist.yaml"
   workflow_dispatch:
 
 permissions:
@@ -60,37 +60,35 @@ jobs:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: "0"
-          DN_SERVER: ${{ secrets.DN_SERVER }}
-          DN_CA_CERT: ${{ secrets.DN_CA_CERT }}
-          DN_WEB_PORT: ${{ vars.DN_WEB_PORT }}
         run: |
           set -euo pipefail
           mkdir -p dist
-          # Generic: no server built in; needs dn-launcher.json + ca.crt beside it.
-          go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/dn-launcher-generic.exe .
-          if [ -n "${DN_SERVER}" ] && [ -n "${DN_CA_CERT}" ]; then
-            ca_b64=$(printf '%s\n' "${DN_CA_CERT}" | base64 -w0)
-            go build -trimpath -ldflags "-s -w -H windowsgui \
-              -X main.defaultServer=${DN_SERVER} \
-              -X main.defaultWebPort=${DN_WEB_PORT} \
-              -X main.defaultCA=${ca_b64}" -o dist/dn-launcher.exe .
-            printf '%s\n' "${DN_CA_CERT}" > dist/ca.crt
-            openssl x509 -in dist/ca.crt -noout -fingerprint -sha256 | sed 's/^.*=//' > dist/ca-fingerprint.txt
-            rm dist/ca.crt
-            # Linux bundle: the same exe run inside the game's Wine/Proton prefix.
-            b=dreadnought-launcher-linux
-            mkdir -p "dist/$b"
-            cp dist/dn-launcher.exe linux/dn-launcher-linux.sh linux/README.txt "dist/$b/"
-            cp winres/icon.png "dist/$b/icon.png"
-            chmod +x "dist/$b/dn-launcher-linux.sh"
-            tar -C dist -czf "dist/$b.tar.gz" "$b"
-            rm -r "dist/$b"
-            echo "PLAYTEST=1" >> "$GITHUB_ENV"
-          else
-            echo "::warning::DN_SERVER / DN_CA_CERT not set: publishing the generic build only"
-            echo "PLAYTEST=0" >> "$GITHUB_ENV"
-          fi
-          (cd dist && sha256sum -- *.exe $(ls *.tar.gz 2>/dev/null) > SHA256SUMS.txt)
+          go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/dn-launcher.exe .
+          # Linux bundle: the same exe run inside the game's Wine/Proton prefix.
+          b=dreadnought-launcher-linux
+          mkdir -p "dist/$b"
+          cp dist/dn-launcher.exe linux/dn-launcher-linux.sh linux/README.txt "dist/$b/"
+          cp winres/icon.png "dist/$b/icon.png"
+          chmod +x "dist/$b/dn-launcher-linux.sh"
+          tar -C dist -czf "dist/$b.tar.gz" "$b"
+          rm -r "dist/$b"
+          (cd dist && sha256sum -- dn-launcher.exe "$b.tar.gz" > SHA256SUMS.txt)
+
+      - name: Listed servers
+        # The fingerprints the certificate screen will show, for the notes.
+        run: |
+          set -euo pipefail
+          python3 -c 'import yaml' 2>/dev/null || python3 -m pip install --quiet --user pyyaml
+          python3 - <<'PY' > servers.md
+          import subprocess, yaml
+          doc = yaml.safe_load(open("serverlist.yaml"))
+          for s in doc.get("servers") or []:
+              fp = ""
+              if s.get("ca_cert"):
+                  fp = subprocess.run(["openssl", "x509", "-noout", "-fingerprint", "-sha256"],
+                                      input=s["ca_cert"], capture_output=True, text=True, check=True).stdout.split("=", 1)[1].strip()
+              print(f"- **{s.get('name') or s['host']}**: certificate `{fp}`" if fp else f"- **{s.get('name') or s['host']}**")
+          PY
 
       - name: Release notes
         run: |
@@ -99,16 +97,15 @@ jobs:
           {
             echo "Playtest build #${GITHUB_RUN_NUMBER} from \`${short}\` ($(date -u +%Y-%m-%d))."
             echo
-            if [ "${PLAYTEST}" = "1" ]; then
-              echo "**Windows:** download \`dn-launcher.exe\` and run it. It is already set up for the playtest server."
-              echo "On first start it asks to install the server's testing certificate. Its SHA-256 fingerprint must be:"
-              echo
-              echo "\`$(cat dist/ca-fingerprint.txt)\`"
-              echo
-              echo "**Linux (Steam/Proton or Wine):** download \`dreadnought-launcher-linux.tar.gz\`, unpack it and run \`./dn-launcher-linux.sh\` (see README.txt inside)."
-              echo
-            fi
-            echo "\`dn-launcher-generic.exe\` has no server built in: put \`dn-launcher.json\` (\`{\"server\": \"...\"}\`) and the server's \`ca.crt\` beside it."
+            echo "**Windows:** download \`dn-launcher.exe\` and run it. Pick a server (the first listed one is chosen for you),"
+            echo "then install its certificate when asked; the fingerprint on that screen must match the one below."
+            echo
+            echo "**Linux (Steam/Proton or Wine):** download \`dreadnought-launcher-linux.tar.gz\`, unpack it and run \`./dn-launcher-linux.sh\` (see README.txt inside)."
+            echo
+            echo "### Servers in this build's list"
+            echo "(The launcher downloads \`serverlist.yaml\` again at every start, so later list changes reach this build too.)"
+            echo
+            cat servers.md
             echo
             echo "### Changes"
             prev=$(git describe --tags --abbrev=0 --match 'playtest-*' 2>/dev/null || true)
@@ -123,7 +120,6 @@ jobs:
             cat dist/SHA256SUMS.txt
             echo '```'
           } > notes.md
-          rm -f dist/ca-fingerprint.txt
 
       - name: Publish release
         env:

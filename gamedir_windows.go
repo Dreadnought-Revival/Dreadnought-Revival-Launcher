@@ -30,6 +30,9 @@ type launcherSettings struct {
 	// the default) and Servers the ones the player added (servers_windows.go).
 	Server  string        `json:"server,omitempty"`
 	Servers []savedServer `json:"servers,omitempty"`
+	// Certs are the server certificates in the Trusted Root store the
+	// launcher knows of, with when each was last used (certs_windows.go).
+	Certs []certRecord `json:"certs,omitempty"`
 }
 
 func settingsPath() string {

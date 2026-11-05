@@ -139,6 +139,33 @@
   .option small { display:block; font:12px/1.4 "PlanerRegular","Segoe UI",sans-serif; text-transform:none; color:#8a8a8a; }
   #gamedir-row input { width:100%; }
 
+  /* server picker */
+  #servers .box { left:252px; width:600px; }
+  #srv-list { max-height:198px; overflow-y:auto; margin-bottom:10px; }
+  .srv { position:relative; display:block; width:100%; margin:0 0 6px; padding:6px 40px 6px 12px; text-align:left; cursor:pointer;
+    color:#fff; background:rgba(0,0,0,.45); border:1px solid #333; font:inherit; transition:border-color .3s; }
+  .srv:hover { border-color:#6c6c6c; }
+  .srv.on { border-color:var(--orange); cursor:default; }
+  .srv .n { display:block; font:300 24px/1.1 "Teko","Bahnschrift SemiCondensed","Bahnschrift",sans-serif; text-transform:uppercase; }
+  .srv .d { display:block; font-size:12px; color:#9a9a9a; word-break:break-all; }
+  .srv .tag { position:absolute; right:12px; top:8px; font:300 16px/1 "Teko","Bahnschrift SemiCondensed","Bahnschrift",sans-serif; text-transform:uppercase; color:var(--ok); }
+  .srv .x { position:absolute; right:6px; top:50%; margin-top:-12px; width:24px; height:24px; line-height:22px; text-align:center; color:#9a9a9a; font-size:16px; }
+  .srv .x:hover { color:var(--orange); }
+  .addrow { display:flex; gap:10px; align-items:center; }
+  .box .addrow input[type=text] { flex:1; width:auto; margin:0; }
+  .addrow .btn { font-size:22px; line-height:32px; min-width:120px; }
+  #signin-server { position:absolute; left:80px; top:552px; color:#9a9a9a; font-size:13px; }
+  #signin-server b { color:#fff; font-weight:normal; margin-right:10px; }
+  #note { position:absolute; right:15px; top:50px; width:600px; text-align:right; color:var(--ok); font-size:12px; pointer-events:none; }
+  #cert-origin { margin:-2px 0 4px; color:#9a9a9a; }
+  #certlist { max-height:48px; overflow-y:auto; }
+  .key small { font:12px/1.4 "PlanerRegular","Segoe UI",sans-serif; text-transform:none; color:#8a8a8a; margin-left:8px; }
+  #serverrow { display:flex; gap:16px; align-items:baseline; }
+  #serverrow .path { flex:1; min-width:0; }
+  #certlist .row { display:flex; gap:10px; align-items:baseline; font-size:13px; color:#d8d8d8; }
+  #certlist .row span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #certlist .row .linkbtn { margin:0; font-size:16px; }
+
   /* footer */
   .copyright { position:absolute; left:18px; bottom:26px; color:var(--dim); letter-spacing:.02em; }
   #where { position:absolute; right:15px; bottom:26px; color:var(--dim); text-align:right; max-width:520px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -146,6 +173,7 @@
 <div id="frame">
   <h1 class="brand" data-drag><span>Dreadnought</span></h1>
   <ul id="nav" hidden>
+    <li><a onclick="openServers()">Server</a></li>
     <li><a onclick="openSettings()">Settings</a></li>
     <li><a onclick="openLogs()">Game logs</a></li>
     <li><a onclick="signOut()">Sign out</a></li>
@@ -199,6 +227,24 @@
       <input id="reg-pw" type="password" autocomplete="new-password" maxlength="256">
       <button class="btn" id="register-go" type="submit">Create account</button>
     </form>
+    <div id="signin-server">SERVER <b class="srvname"></b><button class="linkbtn" onclick="openServers()">Change…</button></div>
+  </section>
+
+  <!-- the server picker (servers_windows.go): built-in, listed, added -->
+  <section class="view" id="servers">
+    <div class="box">
+      <h1>Choose a server</h1>
+      <div id="srv-list"></div>
+      <label class="key" for="srv-addr">Add a server by its address</label>
+      <div class="addrow">
+        <input id="srv-addr" type="text" placeholder="play.example.org:8443" maxlength="270" spellcheck="false"
+          onkeydown="if (event.key === 'Enter') addServer()">
+        <button class="btn" id="srv-go" onclick="addServer()">Connect</button>
+      </div>
+      <div class="error" id="srvmsg"></div>
+      <div class="buttons"><button class="btn btn-cancel" id="srv-back" onclick="serverBack()">Back</button></div>
+      <p class="small" id="srv-source"></p>
+    </div>
   </section>
 
   <!-- first start: the server's certificate -->
@@ -211,9 +257,9 @@
         certificates. No administrator rights are needed. Windows asks you to confirm;
         choose <b>Yes</b>.</p>
       <label class="key">SHA-256 fingerprint</label>
+      <div class="small" id="cert-origin"></div>
       <div class="fp" id="cert-fp"></div>
-      <p class="small">To remove it later: run certmgr.msc, open Trusted Root Certification
-        Authorities, Certificates, and delete it.</p>
+      <p class="small">Removed again once unused for 30 days, or any time under Settings.</p>
       <div class="error" id="certmsg"></div>
       <div class="buttons">
         <button class="btn" id="cert-go" onclick="installCert()">Install certificate</button>
@@ -242,7 +288,10 @@
       <label class="option"><input type="checkbox" id="opt-verboseLog" onchange="setOpt('verboseLog', this)">
         <span>Detailed log<small>For bug reports. Makes the log file much larger.</small></span></label>
       <label class="key" style="margin-top:8px">Server</label>
-      <div class="path" id="serverline"></div>
+      <div id="serverrow"><div class="path" id="serverline"></div>
+        <button class="linkbtn" onclick="closeSettings(); openServers()">Change…</button></div>
+      <label class="key" style="margin-top:6px">Server certificates<small>removed after 30 days without use</small></label>
+      <div id="certlist"></div>
       <div class="error" id="gamemsg"></div>
       <div class="buttons"><button class="btn" onclick="closeSettings()">Close</button></div>
     </div>
@@ -250,6 +299,7 @@
 
   <div class="copyright">DREADNOUGHT COMMUNITY PRIVATE SERVER. Not affiliated with Grey Box, Six Foot or YAGER.</div>
   <div id="where"></div>
+  <div id="note"></div>
 </div>
 <script>
   const $ = id => document.getElementById(id);
@@ -302,7 +352,7 @@
 
   // ---- views --------------------------------------------------------------
   function show(view) {
-    for (const v of ['cert', 'signin', 'home']) $(v).classList.toggle('shown', v === view);
+    for (const v of ['servers', 'cert', 'signin', 'home']) $(v).classList.toggle('shown', v === view);
     $('nav').hidden = view !== 'home';
     if (view === 'signin') setTimeout(() => $('login-id').focus(), 50);
   }
@@ -347,7 +397,7 @@
     if (r.ok) { say('playmsg', 'Game started. Good hunting, Captain.', 'good'); return; }
     say('playmsg', r.error, 'bad');
     $('play').disabled = false;
-    if (r.cert) { say('certmsg', r.error); show('cert'); return; }
+    if (r.cert) { if (state.cert) showCert(state.cert); say('certmsg', r.error); show('cert'); return; }
     if (r.game) { openSettings(); $('gamepath').classList.add('missing'); say('gamemsg', r.error); return; }
     if (r.signIn) signOut();
   }
@@ -359,6 +409,17 @@
 
   // ---- certificate --------------------------------------------------------
   function afterCert() { if (state.signedIn) home(state.username); else show('signin'); }
+  const certOrigins = {
+    list: s => 'From the official server list: the right certificate for ' + s + '.',
+    server: s => 'Sent by ' + s + ' itself: compare it with the one its operator publishes.',
+  };
+  function showCert(c) {
+    $('cert-name').textContent = c.name || 'the server certificate';
+    $('cert-fp').textContent = c.fingerprint;
+    $('cert-origin').textContent = certOrigins[c.source] ? certOrigins[c.source](c.server || 'this server') : '';
+    say('certmsg', '');
+    show('cert');
+  }
   async function installCert() {
     $('cert-go').disabled = true;
     say('certmsg', 'Waiting for Windows…', 'good');
@@ -369,6 +430,96 @@
     setTimeout(afterCert, 600);
   }
 
+  // ---- server picker ------------------------------------------------------
+  let serverBusy = false;
+  const listSources = { online: 'Server list downloaded just now.', cached: 'Server list from the last download (GitHub could not be reached).', 'built-in': "Server list built into this launcher (GitHub could not be reached)." };
+  function renderServers() {
+    const info = state.servers || { list: [] };
+    const list = $('srv-list');
+    list.textContent = '';
+    for (const s of info.list) {
+      const b = document.createElement('button');
+      b.className = 'srv' + (s.selected ? ' on' : '');
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = s.name; b.append(n);
+      const d = document.createElement('span'); d.className = 'd';
+      d.textContent = [s.description, s.address && s.address !== s.name ? s.address : ''].filter(Boolean).join('  \u00b7  ');
+      if (d.textContent) b.append(d);
+      if (s.kind === 'custom') {
+        const x = document.createElement('i');
+        x.className = 'x'; x.textContent = '\u2715'; x.title = 'Remove';
+        x.onclick = async e => { e.stopPropagation(); if (!serverBusy) dnServerResult(await dnRemoveServer(s.id)); };
+        b.append(x);
+      } else if (s.kind === 'listed') {
+        const t = document.createElement('span'); t.className = 'tag'; t.textContent = 'Listed'; b.append(t);
+      }
+      b.onclick = () => { if (!s.selected && !serverBusy) useServer(s.id); };
+      list.append(b);
+    }
+    for (const el of document.querySelectorAll('.srvname')) el.textContent = info.current || '';
+    $('srv-back').hidden = !!info.unset;
+    $('srv-source').textContent = listSources[info.source] || '';
+  }
+  function openServers() { closeSettings(); say('srvmsg', ''); renderServers(); show('servers'); setTimeout(() => $('srv-addr').focus(), 50); }
+  function serverBack() { if (state.cert) showCert(state.cert); else afterCert(); }
+  function serverWorking(text) { serverBusy = true; $('srv-go').disabled = true; say('srvmsg', text, 'good'); }
+  function useServer(id) { serverWorking('Connecting…'); dnUseServer(id); }
+  function addServer() {
+    if (serverBusy) return;
+    serverWorking('Connecting…');
+    dnAddServer('', $('srv-addr').value);
+  }
+  function dnServerResult(r) {
+    serverBusy = false;
+    $('srv-go').disabled = false;
+    if (!r.ok) { say('srvmsg', r.error || 'Could not switch server.', 'bad'); return; }
+    state = r;
+    $('srv-addr').value = '';
+    say('srvmsg', '');
+    renderServers();
+    setServer(r.server, r.serverIP);
+    $('name').textContent = r.signedIn ? r.username : '';
+    reloadNews();
+    if (r.servers && r.servers.unset) openServers();
+    else if (r.cert) showCert(r.cert);
+    else afterCert();
+  }
+
+  // ---- certificates: the 30-day clean-up and the list in Settings ---------
+  function note(text) {
+    $('note').textContent = text;
+    clearTimeout(note.t);
+    note.t = setTimeout(() => { $('note').textContent = ''; }, 12000);
+  }
+  async function cleanCerts() {
+    if (typeof window.dnCleanCerts !== 'function') return;
+    let r;
+    try { r = await dnCleanCerts(); } catch (e) { return; }
+    if (r && r.removed && r.removed.length)
+      note('Removed the certificate of ' + r.removed.join(', ') + ': not used for 30 days.');
+  }
+  async function showCerts() {
+    const box = $('certlist');
+    box.textContent = '';
+    let list = [];
+    try { list = await dnCerts(); } catch (e) { /* none to show */ }
+    if (!list.length) { box.textContent = 'None installed by this launcher.'; return; }
+    for (const c of list) {
+      const row = document.createElement('div'); row.className = 'row';
+      const t = document.createElement('span');
+      t.textContent = (c.server || c.name) + '  \u00b7  last used ' + c.lastUsed + (c.current ? '  \u00b7  in use' : '');
+      t.title = c.name + ' ' + c.sha256;
+      const b = document.createElement('button'); b.className = 'linkbtn'; b.textContent = 'Remove';
+      b.onclick = async () => {
+        const r = await dnRemoveCert(c.sha256);
+        if (!r.ok) { say('gamemsg', r.error); return; }
+        say('gamemsg', 'Removed.', 'good');
+        showCerts();
+      };
+      row.append(t, b);
+      box.append(row);
+    }
+  }
+
   // ---- settings -----------------------------------------------------------
   const gameSources = {
     'Steam': 'Found in your Steam library',
@@ -377,7 +528,7 @@
     'dn-launcher.json': 'Set in dn-launcher.json',
     'Linux launcher': 'Found by the Linux launcher',
   };
-  function openSettings() { say('gamemsg', ''); $('settings').classList.add('shown'); }
+  function openSettings() { say('gamemsg', ''); showCerts(); $('settings').classList.add('shown'); }
   function closeSettings() { $('settings').classList.remove('shown'); }
   function showGame(g) {
     g = g || {};
@@ -412,8 +563,8 @@
     const text = server.ip && server.ip !== server.name ? server.name + '  \u00b7  ' + server.ip : server.name;
     $('where').textContent = text ? 'SERVER  ' + text : '';
     $('serverline').textContent = server.ip && server.ip !== server.name
-      ? server.name + ' \u2192 ' + server.ip + ' (looked up when the launcher starts and again on Play)'
-      : server.name;
+      ? server.name + ' \u2192 ' + server.ip : server.name;
+    $('serverline').title = 'Looked up when the launcher starts and again on Play';
     $('status').title = text;
   }
   function setStatus(kind, text) {
@@ -528,11 +679,12 @@
     $('opt-logWindow').checked = !!s.logWindow;
     $('opt-verboseLog').checked = !!s.verboseLog;
     if (s.signedIn) $('name').textContent = s.username;
-    if (s.cert) {
-      $('cert-name').textContent = s.cert.name || 'the server certificate';
-      $('cert-fp').textContent = s.cert.fingerprint;
-      show('cert');
-    } else afterCert();
+    renderServers();
+    if (s.servers && s.servers.unset) openServers();
+    else if (s.cert) showCert(s.cert);
+    else afterCert();
     dnNews();
+    // After the window is up: Windows' removal question belongs to it.
+    setTimeout(cleanCerts, 1500);
   })();
 </script>

@@ -37,24 +37,39 @@ func TestParseServerAddress(t *testing.T) {
 			t.Errorf("parseServerAddress(%q) accepted", bad)
 		}
 	}
-	if k := (savedServer{Address: "203.0.113.7", WebPort: "8443"}).key(); k != "203.0.113.7_8443" {
+	if k := (savedServer{Address: "203.0.113.7", WebPort: "8443"}).choice().key(); k != "203.0.113.7_8443" {
 		t.Errorf("key = %q", k)
 	}
 }
 
-// Default first, then the added servers.
+// Default first, then the listed servers, then the added ones; an added
+// server that is also listed shows once.
 func TestServerChoices(t *testing.T) {
-	defer func(c Config) { baseConfig = c }(baseConfig)
+	defer func(c Config, l serverList) { baseConfig, servers = c, l }(baseConfig, servers)
 	baseConfig = defaultConfig()
 	baseConfig.Server = "play.example.org"
-	s := launcherSettings{Servers: []savedServer{{Name: "Friend", Address: "friend.example"}, {Name: "empty"}}}
+	servers = serverList{Servers: []listedServer{{ID: "eu", Name: "EU", Host: "eu.example", WebPort: 8443,
+		GatewayPort: 1234, FirmamentPort: 5678, caDER: []byte{1}}}}
+	s := launcherSettings{Servers: []savedServer{{Name: "Friend", Address: "friend.example"}, {Name: "empty"},
+		{Name: "dup", Address: "eu.example", WebPort: "8443"}}}
 	got := serverChoices(s)
-	if len(got) != 2 || got[0].id() != "" || got[1].Name != "Friend" {
+	if len(got) != 3 || got[0].id() != "" || got[1].id() != "list:eu" || got[2].Name != "Friend" {
 		t.Fatalf("choices = %+v", got)
 	}
-	cfg := configFor(savedServer{Address: "friend.example", WebPort: "8443"})
-	if cfg.Server != "friend.example" || cfg.WebPort != "8443" || cfg.caFile == "" || cfg.FirmamentHost != "" {
-		t.Fatalf("configFor = %+v", cfg)
+	cfg := configFor(savedServer{Address: "friend.example", WebPort: "8443"}.choice())
+	if cfg.Server != "friend.example" || cfg.WebPort != "8443" || cfg.caFile == "" || cfg.FirmamentHost != "" ||
+		cfg.caSource != caSourceServer {
+		t.Fatalf("configFor(custom) = %+v", cfg)
+	}
+	cfg = configFor(got[1])
+	if cfg.Server != "eu.example" || cfg.WebPort != "8443" || cfg.GatewayPort != "1234" || cfg.FirmamentPort != "5678" ||
+		cfg.caFile != "" || cfg.caDER == nil || cfg.caSource != caSourceList {
+		t.Fatalf("configFor(listed) = %+v", cfg)
+	}
+	// No server built in: no default entry, the list leads.
+	baseConfig.Server = ""
+	if got := serverChoices(s); got[0].id() != "list:eu" {
+		t.Fatalf("without a default, first = %+v", got[0])
 	}
 }
 

@@ -102,6 +102,11 @@ func runDesktopLauncher(exeDir string, cfg Config) bool {
 		}
 	})
 	_ = w.Bind("dnRemoveServer", api.RemoveServer)
+	// Windows asks before a certificate is removed, so these stay on the UI
+	// thread too (certs_windows.go).
+	_ = w.Bind("dnCleanCerts", api.CleanCerts)
+	_ = w.Bind("dnCerts", api.Certs)
+	_ = w.Bind("dnRemoveCert", api.RemoveCert)
 	// Network calls run off the UI thread and report back through a callback.
 	_ = w.Bind("dnSubmit", func(mode, username, identifier, password string) {
 		go func() { reply("dnAuthResult", api.Submit(mode, username, identifier, password)) }()
