@@ -101,7 +101,6 @@ func runDesktopLauncher(exeDir string, cfg Config) bool {
 			w.Terminate()
 		}
 	})
-	_ = w.Bind("dnRemoveServer", api.RemoveServer)
 	// Windows asks before a certificate is removed, so these stay on the UI
 	// thread too (certs_windows.go).
 	_ = w.Bind("dnCleanCerts", api.CleanCerts)
@@ -114,9 +113,6 @@ func runDesktopLauncher(exeDir string, cfg Config) bool {
 	// Switching server resolves it and may fetch its certificate.
 	_ = w.Bind("dnUseServer", func(id string) {
 		go func() { reply("dnServerResult", api.UseServer(id)) }()
-	})
-	_ = w.Bind("dnAddServer", func(name, address string) {
-		go func() { reply("dnServerResult", api.AddServer(name, address)) }()
 	})
 	_ = w.Bind("dnNews", func() {
 		go func() { reply("dnNewsResult", api.News()) }()

@@ -16,9 +16,9 @@
 #   ca_cert         the server's CA certificate (its certs/ca.crt, PEM). Optional:
 #                   with it, the launcher installs exactly this certificate and
 #                   shows "from the official server list"; without it, it asks
-#                   the server for its certificate and the player checks the
-#                   fingerprint, as for a server added by hand. A server that
-#                   regenerates its CA must update this entry.
+#                   the server for its certificate (/dn/ca.crt) and the player
+#                   checks the fingerprint. A server that regenerates its CA
+#                   must update this entry.
 #
 # Battle-server (UDP) ports need no entry: the server tells the game each
 # match's port.

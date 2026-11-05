@@ -3,14 +3,15 @@
 package main
 
 // Server picker: the launcher window's Server / Change... (originally
-// PR #81 by starveil-bunny, darkace1998/Dreadnought-Revival-project). The
-// picker offers, in this order:
+// PR #81 by starveil-bunny, darkace1998/Dreadnought-Revival-project). A
+// selection list, in this order:
 //
 //   - the server this launcher was built or configured for (Config.Server,
 //     "default"), when there is one;
-//   - the servers of the server list (serverlist.go, "listed");
-//   - servers the player added by address ("custom"; "localhost" for one on
-//     the same computer).
+//   - the servers of the server list (serverlist.go, "listed").
+//
+// CHANGED 2026-11-05 (operator): players no longer add servers by address;
+// a server is offered by listing it in serverlist.yaml.
 //
 // The choice is kept per Windows user in settings.json. With no choice made
 // and nothing built in, the first listed server is used, so a launcher
@@ -18,9 +19,9 @@ package main
 //
 // Certificates. The default server's CA is ca.crt beside the launcher or the
 // built-in one, as before. A listed server's CA comes from the list (GitHub's
-// verified HTTPS is what vouches for it). Any other server -- added by hand,
-// or listed without ca_cert -- is asked for its CA (GET /dn/ca.crt on its
-// gateway, see the server's gateway/main.go); the launcher checks that the CA
+// verified HTTPS is what vouches for it). A server listed without ca_cert is
+// asked for its CA (GET /dn/ca.crt on its gateway, see the server's
+// gateway/main.go); the launcher checks that the CA
 // really issued the certificate the gateway presented and keeps it as
 // servers\<key>.crt. In every case the certificate screen shows the
 // fingerprint before anything is installed.
@@ -38,23 +39,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
-
-// savedServer is a server the player added by address (settings.json).
-type savedServer struct {
-	Name    string `json:"name"`
-	Address string `json:"address"`
-	WebPort string `json:"web_port,omitempty"`
-}
 
 // Kinds of picker entry.
 const (
 	serverKindDefault = "default"
 	serverKindListed  = "listed"
-	serverKindCustom  = "custom"
 )
 
 // serverChoice is one entry of the picker.
@@ -81,18 +73,12 @@ var baseConfig Config
 var servers serverList
 
 // id is how the page and settings.json name a server: "" for the default,
-// "list:<id>" for a listed one, else address[:web port].
+// "list:<id>" for a listed one.
 func (s serverChoice) id() string {
-	switch s.Kind {
-	case serverKindDefault:
-		return ""
-	case serverKindListed:
+	if s.Kind == serverKindListed {
 		return "list:" + s.ListID
 	}
-	if s.WebPort != "" && s.WebPort != "443" {
-		return s.Address + ":" + s.WebPort
-	}
-	return s.Address
+	return ""
 }
 
 // key is id() made safe for a file name ("" for the default, so its sign-in
@@ -123,65 +109,27 @@ func (s serverChoice) displayAddress() string {
 	return s.Address
 }
 
-func (s savedServer) choice() serverChoice {
-	return serverChoice{Kind: serverKindCustom, Name: s.Name, Address: s.Address, WebPort: s.WebPort}
-}
-
 func listedChoice(l listedServer) serverChoice {
 	return serverChoice{Kind: serverKindListed, ListID: l.ID, Name: l.Name, Description: l.Description,
 		Address: l.Host, WebPort: portString(l.WebPort), GatewayPort: portString(l.GatewayPort),
 		FirmamentPort: portString(l.FirmamentPort), CA: l.caDER}
 }
 
-// parseServerAddress takes what a player types: "host", "host:port", with or
-// without https:// and a trailing slash. The port is the web (sign-in) port.
-func parseServerAddress(text string) (savedServer, error) {
-	t := strings.TrimSpace(text)
-	t = strings.TrimPrefix(strings.TrimPrefix(t, "https://"), "http://")
-	t = strings.TrimSuffix(t, "/")
-	if t == "" {
-		return savedServer{}, errors.New("enter the server's address")
-	}
-	host, port := t, ""
-	if h, p, err := net.SplitHostPort(t); err == nil {
-		host, port = h, p
-		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
-			return savedServer{}, fmt.Errorf("%q is not a port number", p)
-		}
-	}
-	if host == "" || strings.ContainsAny(host, " /\\?#@[]:") {
-		return savedServer{}, fmt.Errorf("%q is not a server address", host)
-	}
-	if port == "443" {
-		port = ""
-	}
-	return savedServer{Address: strings.ToLower(host), WebPort: port}, nil
-}
-
 // serverChoices is every entry the picker shows: the default (when this
-// launcher has one), the listed servers, then the added ones. An added server
-// that is also listed shows once, as the listed one.
-func serverChoices(settings launcherSettings) []serverChoice {
+// launcher has one), then the listed servers.
+func serverChoices() []serverChoice {
 	var out []serverChoice
 	if !defaultUnset() {
 		out = append(out, serverChoice{Kind: serverKindDefault, Name: "Default server"})
 	}
-	listed := map[string]bool{}
 	for _, l := range servers.Servers {
-		c := listedChoice(l)
-		listed[c.displayAddress()] = true
-		out = append(out, c)
-	}
-	for _, s := range settings.Servers {
-		if c := s.choice(); s.Address != "" && !listed[c.displayAddress()] {
-			out = append(out, c)
-		}
+		out = append(out, listedChoice(l))
 	}
 	return out
 }
 
-func findServer(settings launcherSettings, id string) (serverChoice, bool) {
-	for _, s := range serverChoices(settings) {
+func findServer(id string) (serverChoice, bool) {
+	for _, s := range serverChoices() {
 		if s.id() == id {
 			return s, true
 		}
@@ -300,7 +248,7 @@ func applySavedServer(exeDir string, cfg Config) (Config, error) {
 	servers = loadServerList(cfg.ServerListURL)
 	settings := loadSettings()
 	if settings.Server != "" {
-		if choice, ok := findServer(settings, settings.Server); ok {
+		if choice, ok := findServer(settings.Server); ok {
 			picked, err := selectServer(exeDir, choice)
 			if err == nil {
 				return picked, nil
@@ -332,10 +280,9 @@ var currentServerName = "Default server"
 // ---- launcher window actions ---------------------------------------------------
 
 func (a *launcherAPI) serverInfo() map[string]any {
-	settings := loadSettings()
 	current := credentialServer // key of the server in use; "" = default
 	list := []map[string]any{}
-	for _, s := range serverChoices(settings) {
+	for _, s := range serverChoices() {
 		addr := s.displayAddress()
 		if s.Kind == serverKindDefault {
 			addr = baseConfig.Server
@@ -361,7 +308,7 @@ func (a *launcherAPI) UseServer(id string) map[string]any {
 	a.netMu.Lock()
 	defer a.netMu.Unlock()
 	settings := loadSettings()
-	choice, ok := findServer(settings, id)
+	choice, ok := findServer(id)
 	if !ok {
 		return map[string]any{"ok": false, "error": "That server is not in the list."}
 	}
@@ -387,89 +334,4 @@ func (a *launcherAPI) UseServer(id string) map[string]any {
 	out := a.Init()
 	out["ok"] = true
 	return out
-}
-
-// AddServer saves a server typed by the player and switches to it. A server
-// that cannot be reached is not kept.
-func (a *launcherAPI) AddServer(name, address string) map[string]any {
-	s, err := parseServerAddress(address)
-	if err != nil {
-		return map[string]any{"ok": false, "error": capitalise(err.Error())}
-	}
-	s.Name = strings.TrimSpace(name)
-	if len([]rune(s.Name)) > 40 {
-		s.Name = string([]rune(s.Name)[:40])
-	}
-	if s.Name == "" {
-		s.Name = s.Address
-	}
-	settings := loadSettings()
-	id := s.choice().id()
-	existing, exists := findServer(settings, id)
-	if !exists {
-		// Typed the address of a listed server: that is the one meant.
-		for _, c := range serverChoices(settings) {
-			if c.Kind == serverKindListed && c.displayAddress() == s.choice().displayAddress() {
-				existing, exists = c, true
-			}
-		}
-	}
-	if exists {
-		return a.UseServer(existing.id())
-	}
-	settings.Servers = append(settings.Servers, s)
-	if err := saveSettings(settings); err != nil {
-		return map[string]any{"ok": false, "error": "Could not save the server: " + err.Error()}
-	}
-	r := a.UseServer(id)
-	if r["ok"] != true {
-		forgetServer(id)
-	}
-	return r
-}
-
-// RemoveServer drops a server the player added and its CA file; removing the
-// one in use switches back to the fallback server.
-func (a *launcherAPI) RemoveServer(id string) map[string]any {
-	settings := loadSettings()
-	s, ok := findServer(settings, id)
-	if !ok || s.Kind != serverKindCustom {
-		return map[string]any{"ok": false, "error": "That server cannot be removed."}
-	}
-	inUse := s.key() == credentialServer
-	forgetServer(id)
-	_ = os.Remove(s.caFile())
-	if inUse {
-		settings = loadSettings()
-		settings.Server = ""
-		_ = saveSettings(settings)
-		a.netMu.Lock()
-		cfg, err := applyFallbackServer(a.exeDir, baseConfig)
-		a.netMu.Unlock()
-		if err != nil {
-			return map[string]any{"ok": false, "error": capitalise(err.Error())}
-		}
-		a.mu.Lock()
-		a.cfg = cfg
-		a.token, a.username = "", ""
-		if creds, ok := loadCredentials(); ok && !launcherTokenExpired(creds.Token) {
-			a.token, a.username = creds.Token, creds.Username
-		}
-		a.mu.Unlock()
-	}
-	out := a.Init()
-	out["ok"] = true
-	return out
-}
-
-func forgetServer(id string) {
-	settings := loadSettings()
-	kept := settings.Servers[:0]
-	for _, s := range settings.Servers {
-		if s.choice().id() != id {
-			kept = append(kept, s)
-		}
-	}
-	settings.Servers = kept
-	_ = saveSettings(settings)
 }

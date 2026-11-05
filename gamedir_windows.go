@@ -26,10 +26,9 @@ type launcherSettings struct {
 	// VerboseLog raises the client log to Verbose (see startGame), for bug
 	// reports. Much larger log files.
 	VerboseLog bool `json:"verbose_log"`
-	// Server is the server picked in the window (savedServer.id; empty =
-	// the default) and Servers the ones the player added (servers_windows.go).
-	Server  string        `json:"server,omitempty"`
-	Servers []savedServer `json:"servers,omitempty"`
+	// Server is the server picked in the window (serverChoice.id; empty =
+	// the default; servers_windows.go).
+	Server string `json:"server,omitempty"`
 	// Certs are the server certificates in the Trusted Root store the
 	// launcher knows of, with when each was last used (certs_windows.go).
 	Certs []certRecord `json:"certs,omitempty"`

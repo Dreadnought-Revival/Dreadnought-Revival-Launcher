@@ -36,13 +36,13 @@ list themselves.
 ## Servers
 
 The launcher window's **Server** menu (and *Change…* under the sign-in boxes
-and in Settings) lists, in this order:
+and in Settings) is a selection list, in this order:
 
 1. the server the launcher was built or configured for, if any (`server` in
    `dn-launcher.json`, or `-X main.defaultServer`, see Build);
-2. the servers in [`serverlist.yaml`](serverlist.yaml);
-3. servers the player added by address (`host` or `host:web_port`), removable
-   with the ✕.
+2. the servers in [`serverlist.yaml`](serverlist.yaml).
+
+Players do not type in addresses: a server is offered by listing it.
 
 The choice is remembered per Windows user (`settings.json` under
 `%LOCALAPPDATA%\DreadnoughtPrivateServer`). With nothing chosen and nothing
@@ -66,12 +66,12 @@ anything is installed, and says where the certificate came from:
 
 - a listed server's CA comes from the list, which GitHub's verified HTTPS
   vouches for;
-- a server added by address is asked for its CA (`GET /dn/ca.crt` on its
-  gateway; the server repository's `gateway/main.go` serves it). The launcher
-  checks that this CA really signed the connection and keeps it as
-  `servers\<server>.crt`; the player compares the fingerprint with the one
-  the operator publishes (trust on first use). If that server later makes a
-  new CA, remove the server and add it again;
+- a server listed without `ca_cert` is asked for its CA (`GET /dn/ca.crt` on
+  its gateway; the server repository's `gateway/main.go` serves it). The
+  launcher checks that this CA really signed the connection and keeps it as
+  `servers\list_<id>.crt`; the player compares the fingerprint with the one
+  the operator publishes (trust on first use). Prefer `ca_cert`: a server that
+  later makes a new CA then only updates its entry;
 - the built-in server's CA is `ca.crt` beside the exe or the built-in one, as
   before.
 
@@ -211,8 +211,7 @@ itself is never patched.
 ## Credits
 
 - **Legojedi** — the launcher icon.
-- **starveil-bunny** — the server picker and adding servers by address
-  (PR #81 in the old repository).
+- **starveil-bunny** — the server picker (PR #81 in the old repository).
 
 ## License
 
