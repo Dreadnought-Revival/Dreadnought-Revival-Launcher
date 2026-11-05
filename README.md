@@ -219,6 +219,15 @@ certificate, the game folder, options, Play), served on a random loopback port
 (`browser_windows.go`). Ship the script with `Dreadnought-Revival.exe` and `icon.png`
 beside it; `--install` adds a menu entry.
 
+## Commits
+
+Every commit body ends, before the trailers, with a `Patch notes:` block: one
+line per change a player will notice, prefixed with what it affects
+(`Launcher:` for most changes here), in player words, or
+`Patch notes: none (internal)`. The player-facing patch notes are built from
+these blocks. Format and rules: the server repository's `CONTRIBUTING.md`,
+"The `Patch notes:` block".
+
 ## The rule for this repository
 
 The launcher is the one client-side piece of the project, and it is meant to
