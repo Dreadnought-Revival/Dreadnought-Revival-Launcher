@@ -596,6 +596,13 @@ func startGame(exeDir string, cfg Config, jwtToken, username string) (int, error
 		return 0, fmt.Errorf("could not store the sign-in for the game: %w", err)
 	}
 	fmt.Println("[+] Auth token written.")
+	// The player's clock, so the server's chat lines show their local time
+	// (clock_windows.go). Short timeout: it must never hold up the game.
+	clockClient := launcherHTTPClient()
+	clockClient.Timeout = 5 * time.Second
+	if err := reportClock(clockClient, clockURL, jwtToken); err != nil {
+		fmt.Printf("[!] Could not send the clock (chat times will be UTC): %v\n", err)
+	}
 
 	gamePath := findGameBinary(exeDir, cfg)
 	if gamePath == "" {
