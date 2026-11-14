@@ -93,6 +93,23 @@
   #panel .news a { color:#fff; text-decoration:none; cursor:pointer; }
   #panel .news a:hover { color:var(--orange); }
   #panel .spacer { flex:1; }
+  /* patch notes: the project page's RSS feed (patchnotes.go), scrolling inside the panel */
+  #notes { flex:1; min-height:0; overflow-y:auto; margin:2px -12px 8px 0; padding-right:12px; scrollbar-width:thin; scrollbar-color:#555 transparent; }
+  #notes .note { padding:6px 0 10px; border-bottom:1px solid #2a2a2a; }
+  #notes .note:last-child { border-bottom:0; }
+  #notes h2 { font:300 20px/1.2 "Teko","Bahnschrift SemiCondensed","Bahnschrift",sans-serif; text-transform:uppercase; color:#fff; margin-bottom:4px; }
+  #notes h2.link { cursor:pointer; transition:color .5s; }
+  #notes h2.link:hover { color:var(--orange); }
+  #notes p { font-size:13px; line-height:1.4; color:#d8d8d8; margin:6px 0 2px; }
+  #notes strong, #notes b { color:#fff; font-weight:normal; }
+  #notes p strong:only-child { font:300 17px/1.2 "Teko","Bahnschrift SemiCondensed","Bahnschrift",sans-serif; text-transform:uppercase; }
+  #notes ul, #notes ol { margin:0; padding-left:16px; }
+  #notes li { font-size:13px; line-height:1.4; color:#9a9a9a; margin-bottom:3px; }
+  #notes a { color:#fff; cursor:pointer; } #notes a:hover { color:var(--orange); }
+  #panel .links { display:flex; margin:0 0 6px; white-space:nowrap; }
+  #panel .links .linkbtn { font-size:18px; }
+  #panel .links #patreon { margin:0 0 0 auto; color:var(--orange); }
+  #panel .links #patreon:hover { color:#fff; }
   #panel .key { font-size:18px; line-height:24px; text-transform:uppercase; color:#888; }
   #panel .captain { font-size:30px; line-height:1.1; text-transform:uppercase; color:#fff; word-break:break-all; }
   .msg { min-height:24px; font:300 18px/24px "Teko","Bahnschrift SemiCondensed","Bahnschrift",sans-serif; text-transform:uppercase; color:#fff; }
@@ -138,6 +155,7 @@
   .option span { font:300 18px/24px "Teko","Bahnschrift SemiCondensed","Bahnschrift",sans-serif; text-transform:uppercase; }
   .option small { display:block; font:12px/1.4 "PlanerRegular","Segoe UI",sans-serif; text-transform:none; color:#8a8a8a; }
   #gamedir-row input { width:100%; }
+  .account .remember { margin-top:4px; width:344px; }
 
   /* server picker */
   #servers .box { left:252px; width:600px; }
@@ -196,8 +214,14 @@
       </div>
     </div>
     <div id="panel">
-      <div class="news" id="half"></div>
-      <div class="spacer"></div>
+      <h1>Patch notes</h1>
+      <div id="notes"></div>
+      <!-- the server's own half tiles: shown only when the patch notes cannot be loaded -->
+      <div class="news" id="half" hidden></div>
+      <div class="links">
+        <button class="linkbtn" id="notes-all" hidden>All notes</button>
+        <button class="linkbtn" id="patreon" title="Support the project on Patreon" hidden>Support on Patreon</button>
+      </div>
       <div class="key">Captain</div>
       <div class="captain" id="name"></div>
       <div class="msg" id="playmsg"></div>
@@ -213,6 +237,7 @@
       <input id="login-id" type="text" autocomplete="username" maxlength="254" spellcheck="false">
       <label class="key" for="login-pw">Password</label>
       <input id="login-pw" type="password" autocomplete="current-password" maxlength="256">
+      <label class="option remember"><input type="checkbox" id="login-remember" checked><span>Remember me<small>Keeps your password, encrypted for your Windows user, so the launcher signs you in by itself.</small></span></label>
       <button class="btn" id="login-go" type="submit">Sign in</button>
     </form>
     <form class="box account" id="register" onsubmit="submitForm(event, 'register')">
@@ -224,6 +249,7 @@
       <input id="reg-email" type="email" autocomplete="email" maxlength="254" spellcheck="false">
       <label class="key" for="reg-pw">Password</label>
       <input id="reg-pw" type="password" autocomplete="new-password" maxlength="256">
+      <label class="option remember"><input type="checkbox" id="reg-remember" checked><span>Remember me</span></label>
       <button class="btn" id="register-go" type="submit">Create account</button>
     </form>
     <div id="signin-server">SERVER <b class="srvname"></b><button class="linkbtn" onclick="openServers()">Change…</button></div>
@@ -347,7 +373,7 @@
   function show(view) {
     for (const v of ['servers', 'cert', 'signin', 'home']) $(v).classList.toggle('shown', v === view);
     $('nav').hidden = view !== 'home';
-    if (view === 'signin') setTimeout(() => $('login-id').focus(), 50);
+    if (view === 'signin') setTimeout(() => $($('login-id').value ? 'login-pw' : 'login-id').focus(), 50);
   }
   function say(el, text, kind) { $(el).textContent = text || ''; $(el).className = $(el).className.replace(/\s*\b(bad|good)\b/g, '') + (kind ? ' ' + kind : ''); }
 
@@ -359,8 +385,8 @@
     say('login-msg', ''); say('register-msg', '');
     $(mode + '-go').disabled = true;
     say(mode + '-msg', 'Contacting the server…', 'good');
-    if (mode === 'register') dnSubmit('register', $('reg-name').value, $('reg-email').value, $('reg-pw').value);
-    else dnSubmit('login', '', $('login-id').value, $('login-pw').value);
+    if (mode === 'register') dnSubmit('register', $('reg-name').value, $('reg-email').value, $('reg-pw').value, $('reg-remember').checked);
+    else dnSubmit('login', '', $('login-id').value, $('login-pw').value, $('login-remember').checked);
   }
   function dnAuthResult(r) {
     const mode = pending || 'login';
@@ -455,6 +481,7 @@
     renderServers();
     setServer(r.server, r.serverIP);
     $('name').textContent = r.signedIn ? r.username : '';
+    $('login-id').value = r.signedIn ? '' : r.identifier || '';
     reloadNews();
     if (r.servers && r.servers.unset) openServers();
     else if (r.cert) showCert(r.cert);
@@ -675,6 +702,29 @@
     showSlide(0);
     restart();
   }
+  function dnPatchNotesResult(r) {
+    const box = $('notes'); box.textContent = '';
+    if (r.patreon) {
+      $('patreon').hidden = false;
+      $('patreon').onclick = () => openURL(r.patreon);
+    }
+    if (r.link) { $('notes-all').hidden = false; $('notes-all').onclick = () => openURL(r.link); }
+    const notes = r.notes || [];
+    $('half').hidden = notes.length > 0;
+    if (!notes.length) {
+      const p = document.createElement('p'); p.textContent = 'Patch notes could not be loaded.'; box.append(p);
+      return;
+    }
+    for (const n of notes) {
+      const el = document.createElement('div'); el.className = 'note';
+      // The feed's titles are "Patch notes <date>": under the panel's own
+      // heading the date says it.
+      const h = document.createElement('h2'); h.textContent = n.date || n.title || '';
+      if (n.link) { h.className = 'link'; h.onclick = () => openURL(n.link); }
+      el.append(h, safeHTML(n.html || ''));
+      box.append(el);
+    }
+  }
   function restart() {
     clearInterval(timer);
     if ($('tiles').children.length > 1) timer = setInterval(() => showSlide(slide + 1), 6000);
@@ -693,11 +743,13 @@
     $('opt-logWindow').checked = !!s.logWindow;
     $('opt-verboseLog').checked = !!s.verboseLog;
     if (s.signedIn) $('name').textContent = s.username;
+    else if (s.identifier) $('login-id').value = s.identifier;
     renderServers();
     if (s.servers && s.servers.unset) openServers();
     else if (s.cert) showCert(s.cert);
     else afterCert();
     dnNews();
+    dnPatchNotes();
     // After the window is up: Windows' removal question belongs to it.
     setTimeout(cleanCerts, 1500);
     if (typeof window.dnCheckUpdate === 'function') dnCheckUpdate();

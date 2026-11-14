@@ -30,6 +30,10 @@ type launcherAPI struct {
 	mu       sync.Mutex
 	token    string
 	username string
+	// saved is the stored sign-in; with a remembered password (saved.Password)
+	// the player counts as signed in even after token expired, and Play signs
+	// in again first. saved.Identifier fills the sign-in form otherwise.
+	saved storedCredentials
 
 	// netMu keeps a server switch (servers_windows.go) from running while the
 	// news or Play is using the server setup, and the other way round.
@@ -38,10 +42,24 @@ type launcherAPI struct {
 
 func newLauncherAPI(exeDir string, cfg Config, owner func() uintptr) *launcherAPI {
 	a := &launcherAPI{exeDir: exeDir, cfg: cfg, owner: owner}
-	if creds, ok := loadCredentials(); ok && !signOutRequested() && !launcherTokenExpired(creds.Token) {
-		a.token, a.username = creds.Token, creds.Username
+	if !signOutRequested() {
+		a.loadSaved()
 	}
 	return a
+}
+
+// loadSaved takes the stored sign-in of the current server. Callers hold a.mu
+// or own a.
+func (a *launcherAPI) loadSaved() {
+	a.token, a.username, a.saved = "", "", storedCredentials{}
+	creds, ok := loadCredentials()
+	if !ok {
+		return
+	}
+	a.saved = creds
+	if !launcherTokenExpired(creds.Token) || creds.Password != "" {
+		a.token, a.username = creds.Token, creds.Username
+	}
 }
 
 func (a *launcherAPI) Init() map[string]any {
@@ -52,7 +70,8 @@ func (a *launcherAPI) Init() map[string]any {
 		server = a.cfg.GatewayIP
 	}
 	settings := loadSettings()
-	out := map[string]any{"signedIn": a.token != "", "username": a.username, "server": server,
+	out := map[string]any{"signedIn": a.username != "", "username": a.username,
+		"identifier": a.saved.Identifier, "server": server,
 		"serverIP": a.serverIP(), "game": gameInfo(a.exeDir, a.cfg),
 		"logWindow": settings.LogWindow, "verboseLog": settings.VerboseLog, "version": launcherVersion,
 		"servers": a.serverInfo()}
@@ -149,7 +168,10 @@ func currentCA() []byte {
 	return pendingCA
 }
 
-func (a *launcherAPI) Submit(mode, username, identifier, password string) map[string]any {
+// Submit signs in (or creates the account, then signs in). remember keeps the
+// password, DPAPI-encrypted, so the launcher can sign in again by itself
+// when the 24-hour token runs out.
+func (a *launcherAPI) Submit(mode, username, identifier, password string, remember bool) map[string]any {
 	identifier, username = strings.TrimSpace(identifier), strings.TrimSpace(username)
 	fail := func(msg string) map[string]any { return map[string]any{"ok": false, "error": msg} }
 	if identifier == "" || password == "" {
@@ -170,11 +192,14 @@ func (a *launcherAPI) Submit(mode, username, identifier, password string) map[st
 	if err != nil {
 		return fail(capitalise(err.Error()))
 	}
+	if remember {
+		creds.Password = password
+	}
 	if err := saveCredentials(creds); err != nil {
 		fmt.Printf("[!] Could not remember this sign-in (%v)\n", err)
 	}
 	a.mu.Lock()
-	a.token, a.username = creds.Token, creds.Username
+	a.token, a.username, a.saved = creds.Token, creds.Username, creds
 	a.mu.Unlock()
 	return map[string]any{"ok": true, "username": creds.Username}
 }
@@ -182,7 +207,7 @@ func (a *launcherAPI) Submit(mode, username, identifier, password string) map[st
 func (a *launcherAPI) SignOut() {
 	clearCredentials()
 	a.mu.Lock()
-	a.token, a.username = "", ""
+	a.token, a.username, a.saved = "", "", storedCredentials{}
 	a.mu.Unlock()
 }
 
@@ -210,6 +235,21 @@ func (a *launcherAPI) News() map[string]any {
 	}
 	noteCertUsed(currentCA(), currentServerName) // reached the server with it
 	return map[string]any{"online": true, "tiles": tiles, "serverIP": a.serverIP()}
+}
+
+// PatchNotes is the project's patch notes feed (patchnotes.go) and the
+// Patreon link, for the window's right-hand panel. Independent of the server:
+// a server that cannot be reached still gets its notes.
+func (a *launcherAPI) PatchNotes() map[string]any {
+	notes, link, err := fetchPatchNotes()
+	out := map[string]any{"patreon": patreonURL}
+	if err != nil {
+		fmt.Printf("[!] Patch notes not available: %v\n", err)
+		out["error"] = err.Error()
+		return out
+	}
+	out["notes"], out["link"] = notes, link
+	return out
 }
 
 func (a *launcherAPI) config() Config {
@@ -266,13 +306,43 @@ func (a *launcherAPI) Play() map[string]any {
 			"error": "Dreadnought was not found. Choose your game folder above."}
 	}
 	if token == "" || launcherTokenExpired(token) {
-		return map[string]any{"ok": false, "error": "Your sign-in has expired. Please sign in again.", "signIn": true}
+		var err error
+		if token, username, err = a.renew(); err != nil {
+			if unreachable(err) {
+				return map[string]any{"ok": false, "error": capitalise(err.Error()), "serverIP": a.serverIP()}
+			}
+			return map[string]any{"ok": false, "error": "Your sign-in has expired. Please sign in again.", "signIn": true}
+		}
 	}
 	if _, err := startGame(a.exeDir, a.config(), token, username); err != nil {
 		return map[string]any{"ok": false, "error": capitalise(err.Error()), "serverIP": a.serverIP()}
 	}
 	noteCertUsed(currentCA(), currentServerName)
 	return map[string]any{"ok": true, "serverIP": a.serverIP()}
+}
+
+// renew signs in again with the remembered password. A refusal (password
+// changed, account gone) forgets the password; an unreachable server does not.
+func (a *launcherAPI) renew() (token, username string, err error) {
+	a.mu.Lock()
+	saved, authURL := a.saved, a.cfg.AuthURL
+	a.mu.Unlock()
+	creds, err := renewCredentials(authURL, saved)
+	if err != nil {
+		if saved.Password != "" && !unreachable(err) {
+			fmt.Printf("[!] The remembered password was refused (%v); sign in again.\n", err)
+			saved.Password = ""
+			_ = saveCredentials(saved)
+			a.mu.Lock()
+			a.saved = saved
+			a.mu.Unlock()
+		}
+		return "", "", err
+	}
+	a.mu.Lock()
+	a.token, a.username, a.saved = creds.Token, creds.Username, creds
+	a.mu.Unlock()
+	return creds.Token, creds.Username, nil
 }
 
 // gameLogFolders are where the game may write DreadGame.log: the per-user

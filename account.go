@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,15 +34,44 @@ import (
 
 const credentialFileName = "account.json"
 
-// storedCredentials is what persists between launches. The password is never
-// kept -- only the refresh-able token and who it belongs to. The blob is
-// DPAPI-encrypted, so it is readable only by this Windows user.
+// storedCredentials is what persists between launches: the token and who it
+// belongs to, and the password only when the player ticked "Remember me"
+// (CHANGED 2026-11-14; before, it was never kept). The token lasts 24 hours
+// (auth-server handlers.go, jwt.Issue), so without the password the player
+// signs in again every day; with it the launcher signs in again by itself
+// (renewCredentials). The blob is DPAPI-encrypted, so it is readable only by
+// this Windows user.
 type storedCredentials struct {
 	Identifier string `json:"identifier"` // email or username, for display and re-login
 	Username   string `json:"username"`
 	UserID     string `json:"user_id"`
 	Token      string `json:"token"`
 	IssuedAt   string `json:"issued_at"`
+	Password   string `json:"password,omitempty"` // only with "Remember me"
+}
+
+// renewCredentials signs in again with a remembered password and saves the
+// new token. The password stays remembered.
+func renewCredentials(authURL string, old storedCredentials) (storedCredentials, error) {
+	if old.Identifier == "" || old.Password == "" {
+		return storedCredentials{}, errors.New("no remembered password")
+	}
+	creds, err := loginAccount(authURL, old.Identifier, old.Password)
+	if err != nil {
+		return storedCredentials{}, err
+	}
+	creds.Password = old.Password
+	if err := saveCredentials(creds); err != nil {
+		fmt.Printf("[!] Could not remember this sign-in (%v)\n", err)
+	}
+	return creds, nil
+}
+
+// unreachable reports whether a sign-in failed before the server answered
+// (no network, server down), as opposed to the server refusing it.
+func unreachable(err error) bool {
+	var ue *url.Error
+	return errors.As(err, &ue)
 }
 
 // credentialServer is the filename-safe key of the server picked in the

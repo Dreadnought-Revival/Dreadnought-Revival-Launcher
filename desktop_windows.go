@@ -107,8 +107,8 @@ func runDesktopLauncher(exeDir string, cfg Config) bool {
 	_ = w.Bind("dnCerts", api.Certs)
 	_ = w.Bind("dnRemoveCert", api.RemoveCert)
 	// Network calls run off the UI thread and report back through a callback.
-	_ = w.Bind("dnSubmit", func(mode, username, identifier, password string) {
-		go func() { reply("dnAuthResult", api.Submit(mode, username, identifier, password)) }()
+	_ = w.Bind("dnSubmit", func(mode, username, identifier, password string, remember bool) {
+		go func() { reply("dnAuthResult", api.Submit(mode, username, identifier, password, remember)) }()
 	})
 	// Switching server resolves it and may fetch its certificate.
 	_ = w.Bind("dnUseServer", func(id string) {
@@ -130,6 +130,9 @@ func runDesktopLauncher(exeDir string, cfg Config) bool {
 	})
 	_ = w.Bind("dnNews", func() {
 		go func() { reply("dnNewsResult", api.News()) }()
+	})
+	_ = w.Bind("dnPatchNotes", func() {
+		go func() { reply("dnPatchNotesResult", api.PatchNotes()) }()
 	})
 	_ = w.Bind("dnPlay", func() {
 		go func() {

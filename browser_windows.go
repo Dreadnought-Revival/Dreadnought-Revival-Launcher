@@ -53,10 +53,11 @@ const browserBridgeJS = `<script>
   window.dnCerts = () => dnCall('certs');
   window.dnRemoveCert = (h) => dnCall('removeCert', [h]);
   window.dnUseServer = (id) => { dnCall('useServer', [id]).then(dnServerResult, e => dnServerResult({ ok: false, error: String(e) })); };
-  window.dnSubmit = (m, u, i, p) => { dnCall('submit', [m, u, i, p]).then(dnAuthResult, e => dnAuthResult({ ok: false, error: String(e) })); };
+  window.dnSubmit = (m, u, i, p, r) => { dnCall('submit', [m, u, i, p, !!r]).then(dnAuthResult, e => dnAuthResult({ ok: false, error: String(e) })); };
   window.dnCheckUpdate = () => { dnCall('checkUpdate').then(dnUpdateResult, () => {}); };
   window.dnApplyUpdate = () => { dnCall('applyUpdate').then(dnUpdateApplied, e => dnUpdateApplied({ ok: false, error: String(e) })); };
   window.dnNews = () => { dnCall('news').then(dnNewsResult, e => dnNewsResult({ online: false, error: String(e) })); };
+  window.dnPatchNotes = () => { dnCall('patchNotes').then(dnPatchNotesResult, e => dnPatchNotesResult({ error: String(e) })); };
   window.dnPlay = () => {
     dnCall('play').then(r => {
       dnPlayResult(r);
@@ -150,9 +151,11 @@ func runBrowserLauncher(exeDir string, cfg Config) error {
 			api.SignOut()
 			out = true
 		case "submit":
-			out = api.Submit(str(0), str(1), str(2), str(3))
+			out = api.Submit(str(0), str(1), str(2), str(3), boolean(4))
 		case "news":
 			out = api.News()
+		case "patchNotes":
+			out = api.PatchNotes()
 		case "checkUpdate":
 			out = api.CheckUpdate()
 		case "applyUpdate":

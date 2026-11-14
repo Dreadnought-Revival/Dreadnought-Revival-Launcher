@@ -51,6 +51,14 @@ before v1.0.4 have no check: update those by hand once.
 A change to `serverlist.yaml` alone starts no build: launchers download the
 list themselves.
 
+**Patch notes** (`patchnotes.go`). The panel right of the news shows the last
+10 entries of the project page's RSS feed
+(`https://dreadnought-revival.github.io/Dreadnought-Revival-Page/feed.xml`,
+`-X main.patchNotesURL=...` to change it), fetched at start over ordinary
+HTTPS, whichever server is picked. Under them: *All notes* (the feed's own
+link) and *Support on Patreon*. If the feed cannot be loaded the panel shows
+the server's own half-size news tiles instead, as before.
+
 ## Servers
 
 The launcher window's **Server** menu (and *Change…* under the sign-in boxes
@@ -179,7 +187,12 @@ part of Windows 11 and installed with Edge on most Windows 10 PCs) with
 **Sign in** / **Create account**, then a home screen with the server's news
 tiles (the server's `/v2/dreadnought/launcher/dn/tiles/`), a server status
 light and **Play**. The sign-in is kept, DPAPI-protected for that Windows user,
-so the next start goes straight to the home screen. Because the account lives
+so the next start goes straight to the home screen. The server's token lasts
+24 hours; with **Remember me** (ticked by default) the password is kept too,
+in the same DPAPI-protected file, and Play signs in again by itself when the
+token has run out. A refused password is forgotten (sign in again); an
+unreachable server keeps it. Without Remember me the form only keeps the email
+or captain name. **Sign out** forgets everything. Because the account lives
 on the server rather than being derived from the machine, the same login works
 from any PC.
 

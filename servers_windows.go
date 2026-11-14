@@ -326,10 +326,7 @@ func (a *launcherAPI) UseServer(id string) map[string]any {
 	}
 	a.mu.Lock()
 	a.cfg = cfg
-	a.token, a.username = "", ""
-	if creds, ok := loadCredentials(); ok && !launcherTokenExpired(creds.Token) {
-		a.token, a.username = creds.Token, creds.Username
-	}
+	a.loadSaved()
 	a.mu.Unlock()
 	out := a.Init()
 	out["ok"] = true
