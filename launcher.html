@@ -142,7 +142,8 @@
   .buttons { display:flex; justify-content:center; gap:10px; margin-top:6px; }
   #settings { position:absolute; inset:0; z-index:10; background:rgba(4,5,7,.55); display:none; }
   #settings.shown { display:block; }
-  #settings .box { top:68px; background:rgba(9,15,15,.94); }
+  .browser .desktop-only { display:none; }
+  #settings .box { top:68px; max-height:540px; overflow-y:auto; scrollbar-width:thin; scrollbar-color:#555 transparent; background:rgba(9,15,15,.94); }
   .path { font-size:14px; color:#fff; word-break:break-all; user-select:text; }
   .path.missing { color:var(--orange); }
   .small { font-size:12px; color:#8a8a8a; }
@@ -306,6 +307,10 @@
         <span>Show the game's log window</span></label>
       <label class="option"><input type="checkbox" id="opt-verboseLog" onchange="setOpt('verboseLog', this)">
         <span>Detailed log<small>For bug reports. Makes the log file much larger.</small></span></label>
+      <label class="option desktop-only"><input type="checkbox" id="opt-closeOnPlay" onchange="setOpt('closeOnPlay', this)">
+        <span>Close the launcher when the game starts<small>Off: it hides and comes back when the game closes.</small></span></label>
+      <label class="option desktop-only"><input type="checkbox" id="opt-trayMinimize" onchange="setOpt('trayMinimize', this)">
+        <span>Minimize to the system tray</span></label>
       <label class="key" style="margin-top:8px">Server</label>
       <div id="serverrow"><div class="path" id="serverline"></div>
         <button class="linkbtn" onclick="closeSettings(); openServers()">Change…</button></div>
@@ -413,13 +418,29 @@
   }
   function dnPlayResult(r) {
     if (r.serverIP) setServer(server.name, r.serverIP);
-    if (r.ok) { say('playmsg', 'Game started. Good hunting, Captain.', 'good'); return; }
+    if (r.ok) { say('playmsg', 'Game started. Good hunting, Captain.', 'good'); return; } // Play stays off while the game runs
     say('playmsg', r.error, 'bad');
     $('play').disabled = false;
     if (r.cert) { if (state.cert) showCert(state.cert); say('certmsg', r.error); show('cert'); return; }
     if (r.game) { openSettings(); $('gamepath').classList.add('missing'); say('gamemsg', r.error); return; }
     if (r.signIn) signOut();
   }
+  // The game has closed and the window is back (desktop only): Play works
+  // again, and the page shows the server as it is now.
+  function dnGameExited(r) {
+    r = r || {};
+    $('play').disabled = false;
+    if (r.crashed) say('playmsg', 'Dreadnought closed unexpectedly' + (r.exitCode ? ' (exit code ' + r.exitCode + ')' : '') + '. "Game logs" in the menu opens its log folder.', 'bad');
+    else say('playmsg', 'Welcome back, Captain.', 'good');
+    dnNews();
+    dnPatchNotes();
+    if (typeof window.dnCheckUpdate === 'function') dnCheckUpdate();
+  }
+  // The tray icon's menu.
+  function dnTrayPlay() {
+    if ($('home').classList.contains('shown') && !$('settings').classList.contains('shown') && !$('play').disabled) play();
+  }
+  function dnTrayLogs(r) { if (r && !r.ok) say('playmsg', r.error, 'bad'); }
   function dnBrowserStarted() { say('playmsg', 'Dreadnought is starting. You can close this tab.', 'good'); }
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeSettings();
@@ -742,6 +763,8 @@
     if (window.dnBrowser) $('gamedir-row').hidden = false;
     $('opt-logWindow').checked = !!s.logWindow;
     $('opt-verboseLog').checked = !!s.verboseLog;
+    $('opt-closeOnPlay').checked = !!s.closeOnPlay;
+    $('opt-trayMinimize').checked = !!s.trayMinimize;
     if (s.signedIn) $('name').textContent = s.username;
     else if (s.identifier) $('login-id').value = s.identifier;
     renderServers();

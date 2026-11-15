@@ -34,6 +34,10 @@ type launcherAPI struct {
 	// the player counts as signed in even after token expired, and Play signs
 	// in again first. saved.Identifier fills the sign-in form otherwise.
 	saved storedCredentials
+	// game is the game process Play started and gameStarted when; WaitGame
+	// waits for it.
+	game        *os.Process
+	gameStarted time.Time
 
 	// netMu keeps a server switch (servers_windows.go) from running while the
 	// news or Play is using the server setup, and the other way round.
@@ -73,7 +77,8 @@ func (a *launcherAPI) Init() map[string]any {
 	out := map[string]any{"signedIn": a.username != "", "username": a.username,
 		"identifier": a.saved.Identifier, "server": server,
 		"serverIP": a.serverIP(), "game": gameInfo(a.exeDir, a.cfg),
-		"logWindow": settings.LogWindow, "verboseLog": settings.VerboseLog, "version": launcherVersion,
+		"logWindow": settings.LogWindow, "verboseLog": settings.VerboseLog,
+		"closeOnPlay": settings.CloseOnPlay, "trayMinimize": settings.TrayMinimize, "version": launcherVersion,
 		"servers": a.serverInfo()}
 	machineMu.RLock()
 	ca, caSource := pendingCA, pendingCASource
@@ -140,6 +145,10 @@ func (a *launcherAPI) SetOption(name string, on bool) bool {
 		settings.LogWindow = on
 	case "verboseLog":
 		settings.VerboseLog = on
+	case "closeOnPlay":
+		settings.CloseOnPlay = on
+	case "trayMinimize":
+		settings.TrayMinimize = on
 	default:
 		return false
 	}
@@ -289,8 +298,8 @@ func (a *launcherAPI) OpenURL(url string) bool {
 	return true
 }
 
-// Play starts the game. ok means the game was started and the front end
-// should close.
+// Play starts the game. ok means the game was started; the front end then
+// closes, or hides and waits for the game (WaitGame).
 func (a *launcherAPI) Play() map[string]any {
 	a.netMu.Lock()
 	defer a.netMu.Unlock()
@@ -314,11 +323,90 @@ func (a *launcherAPI) Play() map[string]any {
 			return map[string]any{"ok": false, "error": "Your sign-in has expired. Please sign in again.", "signIn": true}
 		}
 	}
-	if _, err := startGame(a.exeDir, a.config(), token, username); err != nil {
+	started := time.Now()
+	game, err := startGame(a.exeDir, a.config(), token, username)
+	if err != nil {
 		return map[string]any{"ok": false, "error": capitalise(err.Error()), "serverIP": a.serverIP()}
 	}
+	a.mu.Lock()
+	a.game, a.gameStarted = game, started
+	a.mu.Unlock()
 	noteCertUsed(currentCA(), currentServerName)
 	return map[string]any{"ok": true, "serverIP": a.serverIP()}
+}
+
+// WaitGame blocks until the game Play started has closed and says how it
+// went: its exit code and whether it looks like a crash -- a non-zero exit
+// code, or a crash folder the game wrote while it ran. ok is false when no
+// game was started.
+func (a *launcherAPI) WaitGame() map[string]any {
+	a.mu.Lock()
+	game, started := a.game, a.gameStarted
+	a.mu.Unlock()
+	if game == nil {
+		return map[string]any{"ok": false}
+	}
+	code := -1
+	state, err := game.Wait()
+	if err == nil {
+		code = state.ExitCode()
+	} else {
+		fmt.Printf("[!] Waiting for the game failed: %v\n", err)
+	}
+	a.mu.Lock()
+	if a.game == game {
+		a.game = nil
+	}
+	a.mu.Unlock()
+	crashFolder := newestCrashFolder(a.gameSavedFolders(), started)
+	fmt.Printf("[*] The game closed (exit code %d) after %s\n", code, time.Since(started).Round(time.Second))
+	return map[string]any{"ok": true, "exitCode": code, "crashed": code != 0 || crashFolder != "",
+		"crashFolder": crashFolder, "seconds": int(time.Since(started).Seconds())}
+}
+
+// GameRunning reports whether the game Play started is still running.
+func (a *launcherAPI) GameRunning() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.game != nil
+}
+
+// gameSavedFolders are the game's Saved folders (the parents of
+// gameLogFolders).
+func (a *launcherAPI) gameSavedFolders() []string {
+	var dirs []string
+	for _, logs := range a.gameLogFolders() {
+		dirs = append(dirs, filepath.Dir(logs))
+	}
+	return dirs
+}
+
+// newestCrashFolder is the newest folder the game's crash reporter made since
+// the given time: a folder under Saved\Crashes, or a "UE4CC-..." one under
+// Saved\Logs. "" when there is none. GUESS: these are the two places Unreal
+// Engine 4 versions put a crash's dump and log; no crash folder of this game
+// was at hand to check which one it uses.
+func newestCrashFolder(savedDirs []string, since time.Time) string {
+	best, bestTime := "", time.Time{}
+	for _, saved := range savedDirs {
+		for _, sub := range []string{"Crashes", "Logs"} {
+			entries, err := os.ReadDir(filepath.Join(saved, sub))
+			if err != nil {
+				continue
+			}
+			for _, e := range entries {
+				if !e.IsDir() || (sub == "Logs" && !strings.HasPrefix(e.Name(), "UE4CC")) {
+					continue
+				}
+				info, err := e.Info()
+				if err != nil || info.ModTime().Before(since) || !info.ModTime().After(bestTime) {
+					continue
+				}
+				best, bestTime = filepath.Join(saved, sub, e.Name()), info.ModTime()
+			}
+		}
+	}
+	return best
 }
 
 // renew signs in again with the remembered password. A refusal (password

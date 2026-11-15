@@ -207,6 +207,9 @@ func (a *launcherAPI) ApplyUpdate() map[string]any {
 	}
 	cmd := exec.Command(self, os.Args[1:]...)
 	cmd.Dir = filepath.Dir(self)
+	// This launcher is still running when the new one starts: tell the new
+	// one not to take it for a second launcher (desktop_windows.go).
+	cmd.Env = append(os.Environ(), afterUpdateEnv+"=1")
 	if err := cmd.Start(); err != nil {
 		return fail(fmt.Errorf("installed, but could not start it: %w (start the launcher again)", err))
 	}

@@ -26,6 +26,13 @@ type launcherSettings struct {
 	// VerboseLog raises the client log to Verbose (see startGame), for bug
 	// reports. Much larger log files.
 	VerboseLog bool `json:"verbose_log"`
+	// CloseOnPlay closes the launcher once the game has started (how it
+	// worked before v1.0.7). Off: the window hides and comes back when the
+	// game closes (desktop_windows.go).
+	CloseOnPlay bool `json:"close_on_play,omitempty"`
+	// TrayMinimize sends the window to the notification area instead of the
+	// taskbar when it is minimized (tray_windows.go).
+	TrayMinimize bool `json:"tray_minimize,omitempty"`
 	// Server is the server picked in the window (serverChoice.id; empty =
 	// the default; servers_windows.go).
 	Server string `json:"server,omitempty"`

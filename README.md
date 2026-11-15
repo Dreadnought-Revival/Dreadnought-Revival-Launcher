@@ -196,6 +196,22 @@ or captain name. **Sign out** forgets everything. Because the account lives
 on the server rather than being derived from the machine, the same login works
 from any PC.
 
+**While the game runs** (`desktop_windows.go`, `tray_windows.go`). After
+Play the window hides and the launcher waits for the game. When the game
+closes, the window comes back with Play ready again and the news, server
+status and update check refreshed; if the game ended with a non-zero exit code
+or wrote a crash folder, the page says so and points to *Game logs*. Settings
+has *Close the launcher when the game starts* for the old behaviour.
+
+The launcher has an icon in the notification area (system tray): a left click
+shows the window; the right-click menu has *Open launcher*, *Play*, *Open
+logs* and *Quit*. With the setting *Minimize to the system tray*, the minimize
+button hides the window there instead of the taskbar, and closing the window
+while the game runs keeps the launcher waiting in the tray. Only one launcher
+runs at a time: starting the exe again shows the window of the one already
+running. All of this is the desktop window only; the browser version (Linux,
+`--console`) still exits once the game has started.
+
 The window is laid out like the original Dreadnought launcher: borderless
 1105x620, the logo and a menu (Server, Settings, Game logs, Sign out) top left, PLAY
 GAME top right, the news carousel beside a news panel, and sign-in / create

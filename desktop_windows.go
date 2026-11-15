@@ -19,6 +19,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -33,11 +34,20 @@ const newsURL = "https://legacyapi.prod.greybox.sixfoot.live/v2/dreadnought/laun
 
 // runDesktopLauncher shows the launcher window and returns once it is closed.
 // false means WebView2 is not available and nothing was shown.
+//
+// One launcher at a time: while the game runs the window is hidden, so a
+// player who starts the exe again gets that window back instead of a second
+// one (showRunningLauncher). The launcher an update starts skips the check:
+// the old one is still closing.
 func runDesktopLauncher(exeDir string, cfg Config) bool {
 	if v := webView2RuntimeVersion(); v == "" {
 		return false
 	} else {
 		fmt.Printf("[*] WebView2 runtime %s\n", v)
+	}
+	if os.Getenv(afterUpdateEnv) == "" && showRunningLauncher() {
+		fmt.Println("[*] The launcher is already running; showing its window.")
+		return true
 	}
 	dataDir := filepath.Join(os.Getenv("LOCALAPPDATA"), "DreadnoughtPrivateServer", "WebView2")
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
@@ -61,6 +71,43 @@ func runDesktopLauncher(exeDir string, cfg Config) bool {
 	makeBorderless(uintptr(w.Window()))
 
 	api := newLauncherAPI(exeDir, cfg, func() uintptr { return uintptr(w.Window()) })
+	hwnd := uintptr(w.Window())
+
+	// The tray icon and the hidden window behind it (tray_windows.go). Its
+	// handlers run on this (the UI) thread.
+	var gameResult atomic.Value // the last WaitGame result, for gameExit
+	var icon *tray
+	icon, err := newTray("Dreadnought Revival", trayHandlers{
+		show: func() { showWindow(hwnd) },
+		hide: func() { _, _, _ = procShowWindow.Call(hwnd, swHide) },
+		gameExit: func() {
+			// The game has closed: back on screen, with a fresh page.
+			showWindow(hwnd)
+			b, _ := json.Marshal(gameResult.Load())
+			w.Eval("dnGameExited(" + string(b) + ")")
+		},
+		playEnabled: func() bool { return !api.GameRunning() },
+		command: func(cmd int) {
+			switch cmd {
+			case trayCmdOpen:
+				showWindow(hwnd)
+			case trayCmdPlay:
+				showWindow(hwnd)
+				w.Eval("dnTrayPlay()")
+			case trayCmdLogs:
+				b, _ := json.Marshal(api.OpenLogs())
+				w.Eval("dnTrayLogs(" + string(b) + ")")
+			case trayCmdQuit:
+				w.Terminate()
+			}
+		},
+	})
+	if err != nil {
+		// Without it the window never hides: it could not be brought back.
+		fmt.Printf("[!] No tray icon (%v); the launcher stays on the taskbar.\n", err)
+		icon = nil
+	}
+	defer icon.close()
 
 	// reply runs js on the UI thread with a JSON argument.
 	reply := func(fn string, v any) {
@@ -84,7 +131,6 @@ func runDesktopLauncher(exeDir string, cfg Config) bool {
 	// The window has no frame (as the original's "windowFrame": "Borderless"),
 	// so the page moves, minimizes and closes it.
 	_ = w.Bind("dnWindow", func(action string) {
-		hwnd := uintptr(w.Window())
 		switch action {
 		case "move":
 			// Hand the drag to Windows as if the press were on a title bar.
@@ -96,9 +142,19 @@ func runDesktopLauncher(exeDir string, cfg Config) bool {
 			// The display scale changed under the window (launcher.html).
 			fitWindow(hwnd, false)
 		case "minimize":
-			_, _, _ = procShowWindow.Call(hwnd, swMinimize)
+			if icon.shown() && loadSettings().TrayMinimize {
+				_, _, _ = procShowWindow.Call(hwnd, swHide)
+			} else {
+				_, _, _ = procShowWindow.Call(hwnd, swMinimize)
+			}
 		case "close":
-			w.Terminate()
+			// With the tray option, closing while the game runs keeps the
+			// launcher waiting in the tray for the game to close.
+			if icon.shown() && api.GameRunning() && loadSettings().TrayMinimize {
+				_, _, _ = procShowWindow.Call(hwnd, swHide)
+			} else {
+				w.Terminate()
+			}
 		}
 	})
 	// Windows asks before a certificate is removed, so these stay on the UI
@@ -137,11 +193,23 @@ func runDesktopLauncher(exeDir string, cfg Config) bool {
 	_ = w.Bind("dnPlay", func() {
 		go func() {
 			r := api.Play()
+			wait := r["ok"] == true && icon != nil && !loadSettings().CloseOnPlay
+			r["waiting"] = wait
 			reply("dnPlayResult", r)
-			if r["ok"] == true {
-				time.Sleep(2500 * time.Millisecond)
-				w.Dispatch(w.Terminate)
+			if r["ok"] != true {
+				return
 			}
+			time.Sleep(2500 * time.Millisecond)
+			if !wait {
+				w.Dispatch(w.Terminate)
+				return
+			}
+			// Out of the way while the game runs, back when it closes. The
+			// launcher holds nothing of the game's meanwhile: only its process
+			// handle.
+			icon.post(wmTrayHide)
+			gameResult.Store(api.WaitGame())
+			icon.post(wmTrayGameExit)
 		}()
 	})
 
@@ -242,6 +310,9 @@ const (
 	wmNCLButtonDown         = 0x00A1
 	htCaption               = 2
 	swMinimize              = 6
+	swHide                  = 0
+	swShow                  = 5
+	swRestore               = 9
 	monitorDefaultToNearest = 2
 )
 
@@ -255,6 +326,17 @@ type monitorInfo struct {
 	Monitor winRect
 	Work    winRect
 	Flags   uint32
+}
+
+// showWindow brings the launcher window back: from hidden (tray, a running
+// game) or minimized, and to the front.
+func showWindow(hwnd uintptr) {
+	if iconic, _, _ := procIsIconic.Call(hwnd); iconic != 0 {
+		_, _, _ = procShowWindow.Call(hwnd, swRestore)
+	} else {
+		_, _, _ = procShowWindow.Call(hwnd, swShow)
+	}
+	_, _, _ = procSetForegroundWindow.Call(hwnd)
 }
 
 // makeBorderless drops the title bar and the sizing border, keeping the

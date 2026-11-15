@@ -400,6 +400,11 @@ var defaultWebPort = ""
 // local build. Shown in the console banner and the window's footer.
 var launcherVersion = "dev"
 
+// afterUpdateEnv is set for the launcher an update starts in place of itself
+// (update_windows.go): the old one is still closing, and must not be taken
+// for a launcher that is already running.
+const afterUpdateEnv = "DN_AFTER_UPDATE"
+
 func defaultConfig() Config {
 	return Config{
 		Server:        defaultServer,
@@ -582,18 +587,19 @@ func main() {
 }
 
 // startGame hands the token to the game (registry, DPAPI) and starts it with
-// the server's addresses. Shared by the console flow and the desktop window.
-func startGame(exeDir string, cfg Config, jwtToken, username string) (int, error) {
+// the server's addresses. It returns the game's process, which the desktop
+// window waits on. Shared by the console flow and the desktop window.
+func startGame(exeDir string, cfg Config, jwtToken, username string) (*os.Process, error) {
 	// The server's name is looked up again right before the game starts: its
 	// outside IP may have changed since the launcher was opened.
 	if ip, err := refreshServerIP(&cfg); err != nil {
-		return 0, fmt.Errorf("could not look up the server %s: %w", cfg.Server, err)
+		return nil, fmt.Errorf("could not look up the server %s: %w", cfg.Server, err)
 	} else if cfg.Server != "" {
 		fmt.Printf("[*] Server: %s (%s)\n", cfg.Server, ip)
 	}
 	fmt.Println("[*] Writing auth token to registry...")
 	if err := writeAuthToken(jwtToken); err != nil {
-		return 0, fmt.Errorf("could not store the sign-in for the game: %w", err)
+		return nil, fmt.Errorf("could not store the sign-in for the game: %w", err)
 	}
 	fmt.Println("[+] Auth token written.")
 	// The player's clock, so the server's chat lines show their local time
@@ -610,7 +616,7 @@ func startGame(exeDir string, cfg Config, jwtToken, username string) (int, error
 		fmt.Fprintln(os.Stderr, "    Choose your Dreadnought folder in the launcher window (Game folder, Change),")
 		fmt.Fprintln(os.Stderr, "    put Dreadnought-Revival.exe in your Dreadnought install directory,")
 		fmt.Fprintln(os.Stderr, "    or set 'game_path' in dn-launcher.json to the full path.")
-		return 0, errors.New("could not find Dreadnought -- choose your game folder under Game folder")
+		return nil, errors.New("could not find Dreadnought -- choose your game folder under Game folder")
 	}
 	fmt.Printf("[*] Game binary: %s\n", gamePath)
 
@@ -747,10 +753,10 @@ func startGame(exeDir string, cfg Config, jwtToken, username string) (int, error
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
-		return 0, fmt.Errorf("could not start the game: %w", err)
+		return nil, fmt.Errorf("could not start the game: %w", err)
 	}
-	fmt.Printf("[+] Game launched (PID %d). Launcher exiting.\n", cmd.Process.Pid)
-	return cmd.Process.Pid, nil
+	fmt.Printf("[+] Game launched (PID %d).\n", cmd.Process.Pid)
+	return cmd.Process, nil
 }
 
 // authenticateWithDerivedIdentity is the pre-account path: derive this
