@@ -307,7 +307,6 @@ func defaultUnset() bool {
 func (a *launcherAPI) UseServer(id string) map[string]any {
 	a.netMu.Lock()
 	defer a.netMu.Unlock()
-	settings := loadSettings()
 	choice, ok := findServer(id)
 	if !ok {
 		return map[string]any{"ok": false, "error": "That server is not in the list."}
@@ -320,8 +319,7 @@ func (a *launcherAPI) UseServer(id string) map[string]any {
 		_ = runMachineSetup(a.exeDir, &restore)
 		return map[string]any{"ok": false, "error": capitalise(err.Error())}
 	}
-	settings.Server = choice.id()
-	if err := saveSettings(settings); err != nil {
+	if err := updateSettings(func(s *launcherSettings) bool { s.Server = choice.id(); return true }); err != nil {
 		return map[string]any{"ok": false, "error": "Could not save the setting: " + err.Error()}
 	}
 	a.mu.Lock()

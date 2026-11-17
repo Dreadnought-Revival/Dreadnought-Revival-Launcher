@@ -111,6 +111,12 @@ func (a *launcherAPI) PickGame() map[string]any {
 // SetGameDir takes a typed path (the browser version's text field).
 func (a *launcherAPI) SetGameDir(dir string) map[string]any {
 	dir = strings.Trim(strings.TrimSpace(dir), `"`)
+	// Not a network share: the game is started from this folder, and a typed
+	// path is also what a hostile page would send (audit 2026-11-17). A share
+	// can still be chosen in the folder picker, which only the player drives.
+	if networkPath(dir) {
+		return map[string]any{"ok": false, "error": "Enter a folder on this PC, not a network path (" + dir + ")."}
+	}
 	if gameBinaryIn(dir) == "" {
 		return map[string]any{"ok": false, "error": "Dreadnought was not found in " + dir +
 			". Enter the folder that contains the DreadGame folder."}
@@ -119,9 +125,7 @@ func (a *launcherAPI) SetGameDir(dir string) map[string]any {
 }
 
 func (a *launcherAPI) setGameDir(dir string) map[string]any {
-	settings := loadSettings()
-	settings.GameDir = dir
-	if err := saveSettings(settings); err != nil {
+	if err := updateSettings(func(s *launcherSettings) bool { s.GameDir = dir; return true }); err != nil {
 		return map[string]any{"ok": false, "error": "Could not save the setting: " + err.Error()}
 	}
 	return map[string]any{"ok": true, "game": gameInfo(a.exeDir, a.cfg)}
@@ -129,9 +133,7 @@ func (a *launcherAPI) setGameDir(dir string) map[string]any {
 
 // AutoGame goes back to automatic detection: forget the chosen folder.
 func (a *launcherAPI) AutoGame() map[string]any {
-	settings := loadSettings()
-	settings.GameDir = ""
-	if err := saveSettings(settings); err != nil {
+	if err := updateSettings(func(s *launcherSettings) bool { s.GameDir = ""; return true }); err != nil {
 		return map[string]any{"ok": false, "error": "Could not save the setting: " + err.Error()}
 	}
 	return map[string]any{"ok": true, "game": gameInfo(a.exeDir, a.cfg)}
@@ -139,22 +141,25 @@ func (a *launcherAPI) AutoGame() map[string]any {
 
 // SetOption saves a toggle, per Windows user.
 func (a *launcherAPI) SetOption(name string, on bool) bool {
-	settings := loadSettings()
-	switch name {
-	case "logWindow":
-		settings.LogWindow = on
-	case "verboseLog":
-		settings.VerboseLog = on
-	case "logUpload":
-		settings.NoLogUpload = !on
-	case "closeOnPlay":
-		settings.CloseOnPlay = on
-	case "trayMinimize":
-		settings.TrayMinimize = on
-	default:
-		return false
-	}
-	return saveSettings(settings) == nil
+	known := true
+	err := updateSettings(func(settings *launcherSettings) bool {
+		switch name {
+		case "logWindow":
+			settings.LogWindow = on
+		case "verboseLog":
+			settings.VerboseLog = on
+		case "logUpload":
+			settings.NoLogUpload = !on
+		case "closeOnPlay":
+			settings.CloseOnPlay = on
+		case "trayMinimize":
+			settings.TrayMinimize = on
+		default:
+			known = false
+		}
+		return known
+	})
+	return known && err == nil
 }
 
 func (a *launcherAPI) InstallCert() map[string]any {
@@ -305,6 +310,11 @@ func (a *launcherAPI) OpenURL(url string) bool {
 func (a *launcherAPI) Play() map[string]any {
 	a.netMu.Lock()
 	defer a.netMu.Unlock()
+	// One game at a time: the page turns Play off while the game runs, but
+	// signing in or switching server turned it on again (audit 2026-11-17).
+	if a.GameRunning() {
+		return map[string]any{"ok": false, "error": "Dreadnought is already running."}
+	}
 	a.mu.Lock()
 	token, username := a.token, a.username
 	a.mu.Unlock()
@@ -370,9 +380,25 @@ func (a *launcherAPI) WaitGame() map[string]any {
 	}
 	a.mu.Unlock()
 	crashFolder := newestCrashFolder(a.gameSavedFolders(), started)
-	fmt.Printf("[*] The game closed (exit code %d) after %s\n", code, time.Since(started).Round(time.Second))
-	go a.uploadGameLogAfterGame(gameSession{exitCode: code, crashed: code != 0 || crashFolder != "", seconds: int(time.Since(started).Seconds())})
-	return map[string]any{"ok": true, "exitCode": code, "crashed": code != 0 || crashFolder != "",
+	crashed := code != 0 || crashFolder != ""
+	// A non-zero exit after the log's last line is the crash on exit every
+	// quit has (gameLogClosedCleanly): the player saw a normal close.
+	exitCrash := false
+	if crashed {
+		if dir := a.newestLogFolder(); dir != "" {
+			p := filepath.Join(dir, "DreadGame.log")
+			if info, err := os.Stat(p); err == nil && !info.ModTime().Before(started) && gameLogClosedCleanly(p) {
+				crashed, exitCrash = false, true
+			}
+		}
+	}
+	how := ""
+	if exitCrash {
+		how = ", after a clean shutdown"
+	}
+	fmt.Printf("[*] The game closed (exit code %d%s) after %s\n", code, how, time.Since(started).Round(time.Second))
+	go a.uploadGameLogAfterGame(gameSession{exitCode: code, crashed: crashed, seconds: int(time.Since(started).Seconds())})
+	return map[string]any{"ok": true, "exitCode": code, "crashed": crashed, "exitCrash": exitCrash,
 		"crashFolder": crashFolder, "seconds": int(time.Since(started).Seconds())}
 }
 
@@ -488,4 +514,12 @@ func (a *launcherAPI) newestLogFolder() string {
 		}
 	}
 	return best
+}
+
+// networkPath: a UNC path (\\server\share, //server/share), including the
+// \\?\UNC\ form.
+func networkPath(dir string) bool {
+	d := strings.ReplaceAll(dir, "/", `\`)
+	return strings.HasPrefix(d, `\\`) && !strings.HasPrefix(strings.ToUpper(d), `\\?\`) ||
+		strings.HasPrefix(strings.ToUpper(d), `\\?\UNC\`)
 }

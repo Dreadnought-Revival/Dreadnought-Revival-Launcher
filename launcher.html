@@ -439,6 +439,8 @@
   function dnGameExited(r) {
     r = r || {};
     $('play').disabled = false;
+    // r.exitCrash (a non-zero exit after the game's clean shutdown) is not
+    // reported: the player saw a normal close (launcher_api_windows.go).
     if (r.crashed) say('playmsg', 'Dreadnought closed unexpectedly' + (r.exitCode ? ' (exit code ' + r.exitCode + ')' : '') + '. "Game logs" in the menu opens its log folder.', 'bad');
     else say('playmsg', 'Welcome back, Captain.', 'good');
     dnNews();

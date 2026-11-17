@@ -13,6 +13,12 @@ package main
 // per-run key in a custom header: a custom header forces a CORS preflight that
 // this server never answers, so no other web page open in the browser can
 // drive the launcher.
+//
+// And every request must name this server in its Host header (loopbackHost).
+// Without that a web site could use DNS rebinding -- its own name re-pointed
+// at 127.0.0.1 -- to load the page as same-origin, read the key out of it and
+// call the API (audit 2026-11-17; SetGameDir with a network share and Play
+// would have started a program of the site's choosing).
 
 import (
 	"context"
@@ -96,6 +102,7 @@ func runBrowserLauncher(exeDir string, cfg Config) error {
 	var mu sync.Mutex
 	var lastSeen time.Time // zero until the page first loads
 
+	port := listener.Addr().(*net.TCPAddr).Port
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -196,7 +203,14 @@ func runBrowserLauncher(exeDir string, cfg Config) error {
 		_ = json.NewEncoder(w).Encode(out)
 	})
 
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	guarded := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !loopbackHost(r.Host, port) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+	server := &http.Server{Handler: guarded, ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)
 	go func() {
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
@@ -204,7 +218,7 @@ func runBrowserLauncher(exeDir string, cfg Config) error {
 		}
 	}()
 
-	address := fmt.Sprintf("http://127.0.0.1:%d/", listener.Addr().(*net.TCPAddr).Port)
+	address := fmt.Sprintf("http://127.0.0.1:%d/", port)
 	fmt.Printf("[*] Launcher page: %s\n", address)
 	fmt.Println("    (open it yourself if no browser appears; this window can stay open)")
 	openBrowser(address)
@@ -234,4 +248,19 @@ wait:
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
 	return runErr
+}
+
+// loopbackHost reports whether a request's Host header names this server:
+// 127.0.0.1, localhost or [::1] with its port. Anything else is a page
+// reaching it under another name (DNS rebinding).
+func loopbackHost(host string, port int) bool {
+	h, p, err := net.SplitHostPort(host)
+	if err != nil || p != fmt.Sprint(port) {
+		return false
+	}
+	switch strings.ToLower(h) {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	return false
 }

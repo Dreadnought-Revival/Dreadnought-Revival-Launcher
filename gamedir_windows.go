@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -60,12 +61,40 @@ func loadSettings() launcherSettings {
 	return s
 }
 
+// settingsMu serialises every change to settings.json. Several goroutines
+// change it -- the log upload's marker, certificate records from the news and
+// Play, options and the server switch from the window -- and each change is a
+// read, an edit and a write: without the lock one could write back a copy read
+// before another's write, and that change was lost (audit 2026-11-17).
+var settingsMu sync.Mutex
+
+// updateSettings applies change to settings.json under settingsMu. change
+// returns false to leave the file as it is.
+func updateSettings(change func(s *launcherSettings) bool) error {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	s := loadSettings()
+	if !change(&s) {
+		return nil
+	}
+	return saveSettings(s)
+}
+
+// saveSettings writes settings.json through a temporary file, so a crash or a
+// full disk mid-write leaves the old file instead of a cut-off one (which
+// loadSettings would read as no settings at all: the game folder, the server
+// choice and the certificate records gone). Callers hold settingsMu.
 func saveSettings(s launcherSettings) error {
 	if err := os.MkdirAll(filepath.Dir(settingsPath()), 0o700); err != nil {
 		return err
 	}
 	data, _ := json.MarshalIndent(s, "", "  ")
-	return os.WriteFile(settingsPath(), data, 0o600)
+	tmp := settingsPath() + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, settingsPath())
 }
 
 // gameBinaryIn finds the game executable in dir, accepting the install root

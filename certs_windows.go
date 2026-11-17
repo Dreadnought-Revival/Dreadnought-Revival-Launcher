@@ -61,20 +61,21 @@ func noteCertUsed(der []byte, serverName string) {
 	}
 	name, _ := caSummary(der)
 	h := certHash(der)
-	settings := loadSettings()
-	found := false
-	for i := range settings.Certs {
-		if settings.Certs[i].SHA256 == h {
-			settings.Certs[i].LastUsed = time.Now().UTC()
-			settings.Certs[i].Server = serverName
-			found = true
+	if err := updateSettings(func(settings *launcherSettings) bool {
+		found := false
+		for i := range settings.Certs {
+			if settings.Certs[i].SHA256 == h {
+				settings.Certs[i].LastUsed = time.Now().UTC()
+				settings.Certs[i].Server = serverName
+				found = true
+			}
 		}
-	}
-	if !found {
-		settings.Certs = append(settings.Certs, certRecord{SHA256: h, Name: name, Server: serverName,
-			LastUsed: time.Now().UTC()})
-	}
-	if err := saveSettings(settings); err != nil {
+		if !found {
+			settings.Certs = append(settings.Certs, certRecord{SHA256: h, Name: name, Server: serverName,
+				LastUsed: time.Now().UTC()})
+		}
+		return true
+	}); err != nil {
 		fmt.Printf("[!] Could not record the certificate's use (%v)\n", err)
 	}
 }
@@ -187,20 +188,21 @@ func staleCerts(records []certRecord, keep string, now time.Time) []certRecord {
 // the record and notes the refusal.
 func removeCert(hash string) (removed bool, err error) {
 	removed, err = removeCertFromStore(hash)
-	settings := loadSettings()
-	kept := settings.Certs[:0]
-	for _, r := range settings.Certs {
-		if r.SHA256 == hash {
-			if err != nil {
-				r.Declined = time.Now().UTC()
-				kept = append(kept, r)
+	if serr := updateSettings(func(settings *launcherSettings) bool {
+		kept := settings.Certs[:0]
+		for _, r := range settings.Certs {
+			if r.SHA256 == hash {
+				if err != nil {
+					r.Declined = time.Now().UTC()
+					kept = append(kept, r)
+				}
+				continue
 			}
-			continue
+			kept = append(kept, r)
 		}
-		kept = append(kept, r)
-	}
-	settings.Certs = kept
-	if serr := saveSettings(settings); serr != nil && err == nil {
+		settings.Certs = kept
+		return true
+	}); serr != nil && err == nil {
 		err = serr
 	}
 	return removed, err

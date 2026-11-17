@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -28,11 +27,13 @@ import (
 func buildTLSConfig() *tls.Config {
 	fingerprint := strings.TrimSpace(os.Getenv("TLS_CERT_FINGERPRINT"))
 	if fingerprint == "" {
-		fmt.Fprintln(os.Stderr, "[!] TLS_CERT_FINGERPRINT not set — certificate verification is disabled.")
-		fmt.Fprintln(os.Stderr, "[!] Set TLS_CERT_FINGERPRINT to the SHA256 hex fingerprint of the server certificate for security.")
-		fmt.Fprintln(os.Stderr, "[!] Find it with: openssl x509 -in server.crt -fingerprint -sha256 -noout")
-		//nolint:gosec // Intentional fallback for private servers without configured fingerprint.
-		return &tls.Config{InsecureSkipVerify: true}
+		// No CA of the server's and no pinned fingerprint: Windows' own trust
+		// store decides (the server's CA is in it once installed, which the game
+		// needs anyway). CHANGED 2026-11-17 (audit): this skipped verification
+		// altogether, so the sign-in -- password included -- went to whoever
+		// answered. Only setups without a CA reach here; the release always has
+		// the server list's.
+		return &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 	expected := strings.ToLower(strings.ReplaceAll(fingerprint, ":", ""))
 	return &tls.Config{
@@ -746,17 +747,12 @@ func startGame(exeDir string, cfg Config, jwtToken, username string) (*os.Proces
 	fmt.Printf("    Args: %s\n", strings.Join(args, " "))
 	fmt.Println()
 
-	//nolint:gosec // gamePath is resolved from the local install/config and args are explicit argv values, not shell-expanded input.
-	cmd := exec.Command(gamePath, args...)
-	cmd.Dir = filepath.Dir(gamePath) // Dreadnought install root
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
+	game, err := startGameProcess(gamePath, args, filepath.Dir(gamePath)) // Dreadnought install root
+	if err != nil {
 		return nil, fmt.Errorf("could not start the game: %w", err)
 	}
-	fmt.Printf("[+] Game launched (PID %d).\n", cmd.Process.Pid)
-	return cmd.Process, nil
+	fmt.Printf("[+] Game launched (PID %d).\n", game.Pid)
+	return game, nil
 }
 
 // authenticateWithDerivedIdentity is the pre-account path: derive this

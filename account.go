@@ -206,7 +206,14 @@ func loginAccount(authURL, identifier, password string) (storedCredentials, erro
 	defer func() { _ = resp.Body.Close() }()
 
 	payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode >= 400 {
+	switch {
+	case resp.StatusCode >= 500:
+		// The server (or the gateway in front of it) failed: not the password
+		// (audit 2026-11-17: a 502 read "incorrect email or password").
+		return storedCredentials{}, fmt.Errorf("the server could not sign you in right now (HTTP %d); try again in a minute", resp.StatusCode)
+	case resp.StatusCode == http.StatusTooManyRequests:
+		return storedCredentials{}, errors.New("too many sign-in attempts; wait a minute and try again")
+	case resp.StatusCode >= 400:
 		return storedCredentials{}, fmt.Errorf("%s", serverMessage(payload, "incorrect email or password"))
 	}
 

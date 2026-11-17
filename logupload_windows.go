@@ -28,6 +28,7 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -95,11 +96,73 @@ func trimGameLog(b []byte) []byte {
 		return b
 	}
 	tail := logUploadMaxRaw - logUploadKeepTop
-	cut := len(b) - logUploadKeepTop - tail
-	out := make([]byte, 0, logUploadMaxRaw+128)
-	out = append(out, b[:logUploadKeepTop]...)
+	return joinCut(b[:logUploadKeepTop], b[len(b)-tail:], int64(len(b)-logUploadKeepTop-tail))
+}
+
+// readGameLog reads the log, but of one longer than logUploadMaxRaw only its
+// first logUploadKeepTop bytes and its end (trimGameLog's cut), without
+// reading the middle: a detailed log can run to hundreds of MB (audit
+// 2026-11-17: the whole file was read first).
+func readGameLog(path string) ([]byte, error) {
+	//nolint:gosec // the game's own log, in a folder found by gameLogFolders.
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := info.Size()
+	if size <= logUploadMaxRaw {
+		return io.ReadAll(io.LimitReader(f, logUploadMaxRaw))
+	}
+	tail := int64(logUploadMaxRaw - logUploadKeepTop)
+	head := make([]byte, logUploadKeepTop)
+	if _, err := f.ReadAt(head, 0); err != nil {
+		return nil, err
+	}
+	end := make([]byte, tail)
+	if _, err := f.ReadAt(end, size-tail); err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	return joinCut(head, end, size-logUploadKeepTop-tail), nil
+}
+
+func joinCut(head, end []byte, cut int64) []byte {
+	out := make([]byte, 0, len(head)+len(end)+64)
+	out = append(out, head...)
 	out = append(out, fmt.Sprintf("\r\n[launcher: %d bytes of the log cut here]\r\n", cut)...)
-	return append(out, b[len(b)-tail:]...)
+	return append(out, end...)
+}
+
+// gameLogClosedCleanly reports whether the game log at path ends with the
+// engine's own last line, "Log file closed": the game shut down completely,
+// whatever its exit code says. The client exits with 0xC0000005 AFTER that
+// line on every quit (a background thread returns to address 0 from
+// NtWaitForMultipleObjects, 2026-11-17), which is no crash a player saw.
+func gameLogClosedCleanly(path string) bool {
+	//nolint:gosec // the game's own log.
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	const tailBytes = 4096
+	off := info.Size() - tailBytes
+	if off < 0 {
+		off = 0
+	}
+	buf := make([]byte, info.Size()-off)
+	if _, err := f.ReadAt(buf, off); err != nil && !errors.Is(err, io.EOF) {
+		return false
+	}
+	return bytes.Contains(buf, []byte("Log file closed"))
 }
 
 // gameSession is what the launcher knows of the session a log is from.
@@ -110,6 +173,9 @@ type gameSession struct {
 	seconds  int
 	late     bool
 }
+
+// The server tells a crash on exit (crashed=0 with a non-zero exit code) from
+// a crash during play (crashed=1).
 
 // pendingLog is a log read, filtered and compressed, ready to send.
 type pendingLog struct {
@@ -140,13 +206,12 @@ func (a *launcherAPI) prepareGameLog(s gameSession) *pendingLog {
 	if modified == settings.LogUploaded || (s.late && time.Since(info.ModTime()) > logUploadMaxAge) {
 		return nil
 	}
-	//nolint:gosec // the game's own log, in a folder found by gameLogFolders.
-	raw, err := os.ReadFile(path)
+	raw, err := readGameLog(path)
 	if err != nil {
 		fmt.Printf("[!] Could not read the game log: %v\n", err)
 		return nil
 	}
-	raw = trimGameLog(redactGameLog(raw, os.Getenv("COMPUTERNAME"), os.Getenv("USERPROFILE")))
+	raw = redactGameLog(raw, os.Getenv("COMPUTERNAME"), os.Getenv("USERPROFILE"))
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
 	_, _ = zw.Write(raw)
@@ -205,9 +270,7 @@ func (p *pendingLog) send(token string) error {
 }
 
 func markGameLogSent(modified int64) {
-	s := loadSettings()
-	s.LogUploaded = modified
-	_ = saveSettings(s)
+	_ = updateSettings(func(s *launcherSettings) bool { s.LogUploaded = modified; return true })
 }
 
 // uploadGameLogAfterGame sends the log of the session that just ended. Runs
