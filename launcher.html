@@ -93,18 +93,26 @@
   #panel .news a { color:#fff; text-decoration:none; cursor:pointer; }
   #panel .news a:hover { color:var(--orange); }
   #panel .spacer { flex:1; }
-  /* patch notes: the project page's RSS feed (patchnotes.go), scrolling inside the panel */
-  #notes { flex:1; min-height:0; overflow-y:auto; margin:2px -12px 8px 0; padding-right:12px; scrollbar-width:thin; scrollbar-color:#555 transparent; }
-  #notes .note { padding:6px 0 10px; border-bottom:1px solid #2a2a2a; }
+  /* patch notes: the project page's RSS feed (patchnotes.go), in the big
+     "Welcome" tile of the carousel (the server's first text tile), scrolling
+     under its heading -- the side panel was too narrow to read them. */
+  .tile.notes .body { bottom:0; padding:24px 30px 14px 36px; display:flex; flex-direction:column; }
+  .tile.notes .body h2 { font-size:36px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tile.notes .body > p { margin-bottom:10px; }
+  .tile.notes .body h4 { margin:0; font:300 24px/1.1 "Teko","Bahnschrift SemiCondensed","Bahnschrift",sans-serif; text-transform:uppercase; color:#9a9a9a;
+    border-bottom:1px solid #333; padding-bottom:2px; display:flex; }
+  .tile.notes .body h4 .linkbtn { margin-left:auto; font-size:20px; }
+  #notes { flex:1; min-height:0; overflow-y:auto; margin:6px -14px 0 0; padding-right:14px; scrollbar-width:thin; scrollbar-color:#555 transparent; }
+  #notes .note { padding:8px 0 12px; border-bottom:1px solid #2a2a2a; }
   #notes .note:last-child { border-bottom:0; }
-  #notes h2 { font:300 20px/1.2 "Teko","Bahnschrift SemiCondensed","Bahnschrift",sans-serif; text-transform:uppercase; color:#fff; margin-bottom:4px; }
+  #notes h2 { font:300 26px/1.2 "Teko","Bahnschrift SemiCondensed","Bahnschrift",sans-serif; text-transform:uppercase; color:#fff; margin-bottom:4px; }
   #notes h2.link { cursor:pointer; transition:color .5s; }
   #notes h2.link:hover { color:var(--orange); }
-  #notes p { font-size:13px; line-height:1.4; color:#d8d8d8; margin:6px 0 2px; }
+  #notes p { font-size:15px; line-height:1.5; color:#d8d8d8; margin:6px 0 2px; max-width:none; white-space:normal; }
   #notes strong, #notes b { color:#fff; font-weight:normal; }
-  #notes p strong:only-child { font:300 17px/1.2 "Teko","Bahnschrift SemiCondensed","Bahnschrift",sans-serif; text-transform:uppercase; }
-  #notes ul, #notes ol { margin:0; padding-left:16px; }
-  #notes li { font-size:13px; line-height:1.4; color:#9a9a9a; margin-bottom:3px; }
+  #notes p strong:only-child { font:300 20px/1.2 "Teko","Bahnschrift SemiCondensed","Bahnschrift",sans-serif; text-transform:uppercase; }
+  #notes ul, #notes ol { margin:0; padding-left:20px; }
+  #notes li { font-size:15px; line-height:1.5; color:#b9b9b9; margin-bottom:3px; }
   #notes a { color:#fff; cursor:pointer; } #notes a:hover { color:var(--orange); }
   #panel .links { display:flex; margin:0 0 6px; white-space:nowrap; }
   #panel .links .linkbtn { font-size:18px; }
@@ -215,12 +223,11 @@
       </div>
     </div>
     <div id="panel">
-      <h1>Patch notes</h1>
-      <div id="notes"></div>
-      <!-- the server's own half tiles: shown only when the patch notes cannot be loaded -->
-      <div class="news" id="half" hidden></div>
+      <!-- the server's own half tiles (server status); the patch notes are in
+           the carousel's welcome tile (notesTile) -->
+      <div class="news" id="half"></div>
+      <div class="spacer"></div>
       <div class="links">
-        <button class="linkbtn" id="notes-all" hidden>All notes</button>
         <button class="linkbtn" id="patreon" title="Support the project on Patreon" hidden>Support on Patreon</button>
       </div>
       <div class="key">Captain</div>
@@ -687,10 +694,16 @@
       return;
     }
     const all = r.tiles || [];
-    for (const t of all.filter(t => (t.section_size || 'full') !== 'half')) {
+    const full = all.filter(t => (t.section_size || 'full') !== 'half');
+    // The patch notes go in the first text tile (the server's "Welcome to the
+    // Private Server"); a server without one gets a tile of their own, first.
+    let notesAt = full.findIndex(t => !t.background_image_url && !t.url);
+    if (notesAt < 0) { full.unshift({ title: 'Patch notes' }); notesAt = 0; }
+    full.forEach((t, k) => {
       const el = document.createElement('div');
       el.className = 'tile' + (t.url ? ' link' : '');
-      if (t.background_image_url) el.style.backgroundImage = 'url("' + String(t.background_image_url).replace(/["\\]/g, '') + '")';
+      if (k === notesAt) { el.classList.add('notes'); el.append(notesBody(t)); }
+      else if (t.background_image_url) el.style.backgroundImage = 'url("' + String(t.background_image_url).replace(/["\\]/g, '') + '")';
       else if (t.body) {
         const body = document.createElement('div'); body.className = 'body';
         const h = document.createElement('h2'); h.textContent = t.title || '';
@@ -711,10 +724,10 @@
       }
       if (t.url) el.onclick = () => openURL(t.url);
       tiles.append(el);
-      const d = document.createElement('b'); const k = dots.children.length;
+      const d = document.createElement('b');
       d.onclick = () => { showSlide(k); restart(); };
       dots.append(d);
-    }
+    });
     if (dots.children.length < 2) dots.textContent = '';
     for (const t of all.filter(t => t.section_size === 'half')) {
       const h = document.createElement('h1'); h.textContent = t.title || '';
@@ -725,15 +738,29 @@
     showSlide(0);
     restart();
   }
+  // The patch notes' box and its "All notes" link: made once, so the news
+  // (which rebuilds the tiles) and the patch notes can arrive in either order.
+  const notesBox = document.createElement('div'); notesBox.id = 'notes';
+  const notesAll = document.createElement('button'); notesAll.className = 'linkbtn'; notesAll.hidden = true; notesAll.textContent = 'All notes';
+  function notesBody(t) {
+    const body = document.createElement('div'); body.className = 'body';
+    const h = document.createElement('h2'); h.textContent = t.title || '';
+    body.append(h);
+    if (t.body) { const p = document.createElement('p'); p.textContent = t.body; body.append(p); }
+    if (t.title !== 'Patch notes') {
+      const sub = document.createElement('h4'); sub.textContent = 'Patch notes'; sub.append(notesAll); body.append(sub);
+    } else h.append(notesAll);
+    body.append(notesBox);
+    return body;
+  }
   function dnPatchNotesResult(r) {
-    const box = $('notes'); box.textContent = '';
+    const box = notesBox; box.textContent = '';
     if (r.patreon) {
       $('patreon').hidden = false;
       $('patreon').onclick = () => openURL(r.patreon);
     }
-    if (r.link) { $('notes-all').hidden = false; $('notes-all').onclick = () => openURL(r.link); }
+    if (r.link) { notesAll.hidden = false; notesAll.onclick = () => openURL(r.link); }
     const notes = r.notes || [];
-    $('half').hidden = notes.length > 0;
     if (!notes.length) {
       const p = document.createElement('p'); p.textContent = 'Patch notes could not be loaded.'; box.append(p);
       return;
@@ -748,9 +775,11 @@
       box.append(el);
     }
   }
+  // Slides turn by themselves, but not away from the patch notes while the
+  // pointer is on them (someone reading).
   function restart() {
     clearInterval(timer);
-    if ($('tiles').children.length > 1) timer = setInterval(() => showSlide(slide + 1), 6000);
+    if ($('tiles').children.length > 1) timer = setInterval(() => { if (!$('carousel').matches(':hover') || !$('tiles').children[slide].classList.contains('notes')) showSlide(slide + 1); }, 6000);
   }
 
   // ---- start --------------------------------------------------------------
