@@ -11,7 +11,7 @@ import (
 
 // The launcher is built as a GUI program (-ldflags "-H windowsgui") so the
 // desktop window opens without a console flashing up first. The console flow
-// (--console, a pinned player_id, or no WebView2) still needs one, so it makes
+// (--console, DN_USERNAME/DN_PASSWORD, or no WebView2) still needs one, so it makes
 // its own: ensureConsole reuses a console the launcher already has (a console
 // build, or started from a terminal of a console build) and otherwise opens a
 // new window and points stdin/stdout/stderr at it.

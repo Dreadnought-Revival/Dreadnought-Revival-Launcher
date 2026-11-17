@@ -3,7 +3,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -11,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,104 +136,10 @@ func dpapiDecrypt(data []byte) ([]byte, error) {
 	return result, nil
 }
 
-// ---- Player identity --------------------------------------------------
+// ---- Sign-in response shapes -------------------------------------------
 
-type playerIdentity struct {
-	PlayerID string `json:"player_id"`
-}
-
-// loadOrCreatePlayerID returns this installation's account identity.
-//
-// This identity IS the account. The server has no other notion of who you are:
-// the launcher sends sha256("steam:"+playerID) as the Steam ticket, the auth
-// server hashes that again into a steam_id, and a steam_id it has not seen
-// before auto-registers a brand new player. Losing the identity therefore
-// silently abandons the account -- fresh credits, empty fleet, and the tutorial
-// from the top.
-//
-// That used to be a real hazard, because the generated ID mixed in 16 random
-// bytes. Nothing could reproduce it, so a missing or unreadable player.json
-// meant the old account was gone for good. It is now derived only from stable
-// machine and user identifiers, so regenerating produces the SAME ID as before
-// and the account survives losing the file. Both hashes are one-way, so this is
-// the only recovery route there can be.
-//
-// Precedence: PlayerID from dn-launcher.json (or DN_PLAYER_ID) wins outright,
-// which is also how an account can be moved to another machine.
-func loadOrCreatePlayerID(configured string) (string, error) {
-	if id := strings.TrimSpace(configured); id != "" {
-		return id, nil
-	}
-	if id := strings.TrimSpace(os.Getenv("DN_PLAYER_ID")); id != "" {
-		return id, nil
-	}
-	return loadOrDerivePlayerID()
-}
-
-func loadOrDerivePlayerID() (string, error) {
-	appData := os.Getenv("LOCALAPPDATA")
-	if appData == "" {
-		appData = os.TempDir()
-	}
-	dir := filepath.Join(appData, "DreadnoughtPS")
-	//nolint:gosec // Path is confined to the current user's LOCALAPPDATA/temp private launcher directory.
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("create player identity dir: %w", err)
-	}
-	fpath := filepath.Join(dir, "player.json")
-
-	//nolint:gosec // Path is derived from LOCALAPPDATA/temp and a fixed filename under the launcher's private directory.
-	data, err := os.ReadFile(fpath)
-	if err == nil {
-		var ident playerIdentity
-		if json.Unmarshal(data, &ident) == nil && ident.PlayerID != "" {
-			return ident.PlayerID, nil
-		}
-		fmt.Fprintf(os.Stderr, "[!] Player identity file at %s is unreadable; re-deriving it.\n", fpath)
-		fmt.Fprintf(os.Stderr, "[!] If your account looks new after this, set \"player_id\" in dn-launcher.json to your previous ID.\n")
-	} else if !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "[!] Could not read %s (%v); re-deriving the identity.\n", fpath, err)
-	}
-
-	// Deterministic on purpose -- see the note on loadOrCreatePlayerID. Adding
-	// entropy here is what made a lost player.json unrecoverable.
-	hostname, _ := os.Hostname()
-	username := os.Getenv("USERNAME")
-	if username == "" {
-		username = os.Getenv("USER")
-	}
-	seed := sha256.Sum256([]byte("dreadnought-ps:" + hostname + ":" + username))
-	id := hex.EncodeToString(seed[:16])
-
-	out, err := json.Marshal(playerIdentity{PlayerID: id})
-	if err != nil {
-		return "", fmt.Errorf("marshal player identity: %w", err)
-	}
-	//nolint:gosec // Path is confined to the launcher-managed player identity file under LOCALAPPDATA/temp.
-	if err := os.WriteFile(fpath, out, 0o600); err != nil {
-		return "", fmt.Errorf("write player identity: %w", err)
-	}
-	return id, nil
-}
-
-// ---- Auth ------------------------------------------------------------
-
-type authRequest struct {
-	ID      string     `json:"id"`
-	JSONRPC string     `json:"jsonrpc"`
-	Method  string     `json:"method"`
-	Params  authParams `json:"params"`
-}
-
-type authParams struct {
-	Ticket        string `json:"ticket"`
-	AppID         int    `json:"appid"`
-	Audience      string `json:"audience"`
-	Realm         string `json:"realm"`
-	ClientName    string `json:"client_name"`
-	ClientVersion string `json:"client_version"`
-}
-
+// authResponse is the JSON-RPC envelope a sign-in reply may come in
+// (loginAccount falls back to it).
 type authResponse struct {
 	ID      string            `json:"id"`
 	JSONRPC string            `json:"jsonrpc"`
@@ -248,73 +152,6 @@ type userObj struct {
 	Token       string `json:"token"`
 	UserID      string `json:"user_id"`
 	Username    string `json:"username"`
-}
-
-func getJWT(authURL, playerID string) (token, username string, err error) {
-	ticketHash := sha256.Sum256([]byte("steam:" + playerID))
-	ticket := hex.EncodeToString(ticketHash[:])
-
-	req := authRequest{
-		ID:      "dn-launcher-001",
-		JSONRPC: "2.0",
-		Method:  "jwt.get.by_steam_ticket",
-		Params: authParams{
-			Ticket:        ticket,
-			AppID:         835860,
-			Audience:      "launcher",
-			Realm:         "dreadnought.pc-us",
-			ClientName:    "Dreadnought Launcher",
-			ClientVersion: "live",
-		},
-	}
-	body, err := json.Marshal(req)
-	if err != nil {
-		return "", "", fmt.Errorf("marshal auth request: %w", err)
-	}
-
-	client := launcherHTTPClient()
-	resp, err := client.Post(authURL, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return "", "", fmt.Errorf("POST %s: %w", authURL, err)
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-
-	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", "", fmt.Errorf("auth server returned HTTP %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB limit
-	if err != nil {
-		return "", "", fmt.Errorf("read response: %w", err)
-	}
-
-	var ar authResponse
-	if err := json.Unmarshal(respBody, &ar); err != nil {
-		return "", "", fmt.Errorf("parse response: %w\nbody: %s", err, respBody)
-	}
-	if len(ar.Result) < 2 {
-		return "", "", fmt.Errorf("unexpected result: %s", respBody)
-	}
-
-	var user userObj
-	if err := json.Unmarshal(ar.Result[1], &user); err != nil {
-		return "", "", fmt.Errorf("parse user: %w", err)
-	}
-
-	token = user.JWT
-	if token == "" {
-		token = user.AccessToken
-	}
-	if token == "" {
-		token = user.Token
-	}
-	if token == "" {
-		return "", "", fmt.Errorf("no token in response: %s", respBody)
-	}
-	return token, user.Username, nil
 }
 
 // ---- Registry --------------------------------------------------------
@@ -369,10 +206,6 @@ type Config struct {
 	// AllowSteam drops the -NoSteam switch, letting the client keep its Steam
 	// online subsystem alive. See the note where the switch is built.
 	AllowSteam bool `json:"allow_steam"`
-	// PlayerID pins the account identity. Leave empty to derive it from this
-	// machine and user; set it to carry an account to another machine, or to
-	// recover one after the identity file was lost.
-	PlayerID string `json:"player_id"`
 	// SkipUpdateCheck: do not ask GitHub for a newer launcher at start
 	// (update_windows.go).
 	SkipUpdateCheck bool `json:"skip_update_check"`
@@ -554,35 +387,44 @@ func main() {
 	// WebView2 runtime, under Wine (dn-launcher-linux.sh), or with --console --
 	// the SAME page in the default browser (browser_windows.go). Both offer
 	// sign-in, the certificate, the game folder, the options and Play.
-	pinned := strings.TrimSpace(cfg.PlayerID) != "" || os.Getenv("DN_PLAYER_ID") != ""
-	if !pinned {
-		if !flagRequested("console") && runDesktopLauncher(exeDir, cfg) {
-			return
-		}
-		ensureConsole()
-		if !flagRequested("console") {
-			fmt.Println("[*] The desktop window needs Microsoft Edge WebView2, which is not installed; opening the launcher in your web browser instead.")
-		}
-		if signOutRequested() {
-			clearCredentials()
-		}
-		if err := runBrowserLauncher(exeDir, cfg); err != nil {
-			fatalf("[!] %v", err)
-		}
+	if user, pass := os.Getenv("DN_USERNAME"), os.Getenv("DN_PASSWORD"); user != "" && pass != "" {
+		runUnattended(exeDir, cfg, user, pass)
 		return
 	}
+	if !flagRequested("console") && runDesktopLauncher(exeDir, cfg) {
+		return
+	}
+	ensureConsole()
+	if !flagRequested("console") {
+		fmt.Println("[*] The desktop window needs Microsoft Edge WebView2, which is not installed; opening the launcher in your web browser instead.")
+	}
+	if signOutRequested() {
+		clearCredentials()
+	}
+	if err := runBrowserLauncher(exeDir, cfg); err != nil {
+		fatalf("[!] %v", err)
+	}
+}
 
-	// An explicitly pinned identity (player_id / DN_PLAYER_ID) is how an
-	// account is moved or recovered: no sign-in page, straight into the game.
+// runUnattended signs in with DN_USERNAME / DN_PASSWORD and starts the game,
+// with no window: for automation (the server repo's scripts/wine-client.sh).
+// REPLACES 2026-11-17 the pinned identity (player_id / DN_PLAYER_ID), which
+// signed in through the server's Steam-ticket route -- an unverified ticket
+// built from the PC and Windows user names. That route is gone.
+func runUnattended(exeDir string, cfg Config, user, pass string) {
 	ensureConsole()
 	if pendingCA != nil {
 		if err := ensureCAInstalled(pendingCA); err != nil {
 			fatalf("[!] %v", err)
 		}
 	}
-	jwtToken, username := authenticateWithDerivedIdentity(cfg)
-
-	if _, err := startGame(exeDir, cfg, jwtToken, username); err != nil {
+	fmt.Printf("[*] Signing in as %s ...\n", user)
+	creds, err := loginAccount(cfg.AuthURL, user, pass)
+	if err != nil {
+		fatalf("[!] Auth failed: %v", err)
+	}
+	fmt.Printf("[+] Authenticated as: %s\n", creds.Username)
+	if _, err := startGame(exeDir, cfg, creds.Token, creds.Username); err != nil {
 		fatalf("[!] %v", err)
 	}
 }
@@ -753,26 +595,6 @@ func startGame(exeDir string, cfg Config, jwtToken, username string) (*os.Proces
 	}
 	fmt.Printf("[+] Game launched (PID %d).\n", game.Pid)
 	return game, nil
-}
-
-// authenticateWithDerivedIdentity is the pre-account path: derive this
-// machine's id and exchange it for a token. Kept for installs that pin
-// player_id, and as the route by which an old account is recovered.
-func authenticateWithDerivedIdentity(cfg Config) (jwtToken, username string) {
-	fmt.Println("[*] Loading player identity...")
-	playerID, err := loadOrCreatePlayerID(cfg.PlayerID)
-	if err != nil {
-		fatalf("[!] Failed to load player identity: %v", err)
-	}
-	fmt.Printf("[*] Player ID: %s\n", playerID)
-
-	fmt.Printf("[*] Authenticating with %s ...\n", cfg.AuthURL)
-	jwtToken, username, err = getJWT(cfg.AuthURL, playerID)
-	if err != nil {
-		fatalf("[!] Auth failed: %v", err)
-	}
-	fmt.Printf("[+] Authenticated as: %s\n", username)
-	return jwtToken, username
 }
 
 // signOutRequested reports whether the player asked to switch accounts, via

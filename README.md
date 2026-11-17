@@ -234,6 +234,12 @@ it falls back to the older flow: a console window and the same sign-in page in
 the default browser. `Dreadnought-Revival.exe --sign-out` clears the stored
 credentials.
 
+For automation only: with `DN_USERNAME` and `DN_PASSWORD` set, the launcher
+signs in with them and starts the game with no window (the server repository's
+`scripts/wine-client.sh` uses it). The old pinned identity (`player_id` /
+`DN_PLAYER_ID`, a Steam ticket built from the PC and Windows user names) was
+removed on 2026-11-17, with the server's Steam-ticket sign-in.
+
 ## Linux
 
 The game runs through Proton or Wine, and the certificate, the sign-in token

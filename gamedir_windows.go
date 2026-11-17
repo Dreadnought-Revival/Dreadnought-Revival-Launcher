@@ -112,11 +112,11 @@ func gameBinaryIn(dir string) string {
 		"Win64",
 		"",
 	} {
-		for _, exe := range []string{"DreadGame-Win64-Shipping-patched.exe", "DreadGame-Win64-Shipping.exe"} {
-			p := filepath.Join(dir, sub, exe)
-			if _, err := os.Stat(p); err == nil {
-				return p
-			}
+		// Only the game's own executable. A "-patched.exe" beside it used to
+		// win; REMOVED 2026-11-17: the client is not patched (operator).
+		p := filepath.Join(dir, sub, "DreadGame-Win64-Shipping.exe")
+		if _, err := os.Stat(p); err == nil {
+			return p
 		}
 	}
 	return ""
