@@ -33,6 +33,12 @@ type launcherSettings struct {
 	// TrayMinimize sends the window to the notification area instead of the
 	// taskbar when it is minimized (tray_windows.go).
 	TrayMinimize bool `json:"tray_minimize,omitempty"`
+	// NoLogUpload turns off sending the game log after a session
+	// (logupload_windows.go); sending is on by default.
+	NoLogUpload bool `json:"no_log_upload,omitempty"`
+	// LogUploaded is the time stamp (Unix seconds) of the last DreadGame.log
+	// sent, so a log is sent once.
+	LogUploaded int64 `json:"log_uploaded,omitempty"`
 	// Server is the server picked in the window (serverChoice.id; empty =
 	// the default; servers_windows.go).
 	Server string `json:"server,omitempty"`

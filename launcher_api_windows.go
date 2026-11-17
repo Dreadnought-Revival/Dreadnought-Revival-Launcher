@@ -77,7 +77,7 @@ func (a *launcherAPI) Init() map[string]any {
 	out := map[string]any{"signedIn": a.username != "", "username": a.username,
 		"identifier": a.saved.Identifier, "server": server,
 		"serverIP": a.serverIP(), "game": gameInfo(a.exeDir, a.cfg),
-		"logWindow": settings.LogWindow, "verboseLog": settings.VerboseLog,
+		"logWindow": settings.LogWindow, "verboseLog": settings.VerboseLog, "logUpload": !settings.NoLogUpload,
 		"closeOnPlay": settings.CloseOnPlay, "trayMinimize": settings.TrayMinimize, "version": launcherVersion,
 		"servers": a.serverInfo()}
 	machineMu.RLock()
@@ -145,6 +145,8 @@ func (a *launcherAPI) SetOption(name string, on bool) bool {
 		settings.LogWindow = on
 	case "verboseLog":
 		settings.VerboseLog = on
+	case "logUpload":
+		settings.NoLogUpload = !on
 	case "closeOnPlay":
 		settings.CloseOnPlay = on
 	case "trayMinimize":
@@ -323,6 +325,15 @@ func (a *launcherAPI) Play() map[string]any {
 			return map[string]any{"ok": false, "error": "Your sign-in has expired. Please sign in again.", "signIn": true}
 		}
 	}
+	// The last session's log, if it was not sent when that game closed. Read
+	// now, because starting the game replaces DreadGame.log; sent meanwhile.
+	if p := a.prepareGameLog(gameSession{exitCode: -1, late: true}); p != nil {
+		go func() {
+			if err := p.send(token); err != nil {
+				fmt.Printf("[!] Last game log not sent: %v\n", err)
+			}
+		}()
+	}
 	started := time.Now()
 	game, err := startGame(a.exeDir, a.config(), token, username)
 	if err != nil {
@@ -360,6 +371,7 @@ func (a *launcherAPI) WaitGame() map[string]any {
 	a.mu.Unlock()
 	crashFolder := newestCrashFolder(a.gameSavedFolders(), started)
 	fmt.Printf("[*] The game closed (exit code %d) after %s\n", code, time.Since(started).Round(time.Second))
+	go a.uploadGameLogAfterGame(gameSession{exitCode: code, crashed: code != 0 || crashFolder != "", seconds: int(time.Since(started).Seconds())})
 	return map[string]any{"ok": true, "exitCode": code, "crashed": code != 0 || crashFolder != "",
 		"crashFolder": crashFolder, "seconds": int(time.Since(started).Seconds())}
 }
