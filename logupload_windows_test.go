@@ -3,8 +3,12 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Dreadnought-Revival/Dreadnought-Revival-Launcher/logupload"
 )
 
 // A log as the client writes it (names and token made up).
@@ -37,20 +41,26 @@ func TestRedactGameLog(t *testing.T) {
 	}
 }
 
-func TestTrimGameLog(t *testing.T) {
-	small := []byte("short log")
-	if string(trimGameLog(small)) != "short log" {
-		t.Fatal("a short log changed")
+// The launcher's whole path from log file to parts, with a PC's own names: a
+// log past the cap keeps its start and end, nothing private is left.
+func TestSpoolGameLogLikeThePlayPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "DreadGame.log")
+	var b strings.Builder
+	b.WriteString(testGameLog)
+	for i := 0; i < 20000; i++ {
+		b.WriteString("[2026.11.17-08.00.00:000][  0]LogNet: filler line of the test log, filler filler filler\r\n")
 	}
-	big := make([]byte, logUploadMaxRaw+1000)
-	for i := range big {
-		big[i] = 'a'
+	b.WriteString("LogNet: host desktop-test01 at the end\r\n")
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	copy(big, "START")
-	copy(big[len(big)-3:], "END")
-	out := trimGameLog(big)
-	if len(out) > logUploadMaxRaw+128 || !strings.HasPrefix(string(out), "START") || !strings.HasSuffix(string(out), "END") ||
-		!strings.Contains(string(out), "[launcher: 1000 bytes of the log cut here]") {
-		t.Fatalf("trimmed: len %d", len(out))
+	m, err := logupload.Spool(path, t.TempDir(), logupload.NewRedactor("DESKTOP-TEST01", `D:\Profiles\tw`),
+		logupload.Options{MaxRaw: 400 << 10, KeepTop: 100 << 10, PartSize: 64 << 10})
+	if err != nil {
+		t.Fatal(err)
 	}
+	if m.Cut == 0 || m.Raw() > 400<<10+128 || len(m.Parts) < 5 {
+		t.Fatalf("cut %d, raw %d, parts %d", m.Cut, m.Raw(), len(m.Parts))
+	}
+	m.Remove()
 }

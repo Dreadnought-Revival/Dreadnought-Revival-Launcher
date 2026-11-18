@@ -52,27 +52,6 @@ func TestGameLogClosedCleanly(t *testing.T) {
 	}
 }
 
-// readGameLog keeps a big log's start and end, as trimGameLog does in memory.
-func TestReadGameLogHeadAndTail(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "big.log")
-	big := make([]byte, logUploadMaxRaw+1000)
-	for i := range big {
-		big[i] = 'a'
-	}
-	copy(big, "START")
-	copy(big[len(big)-3:], "END")
-	if err := os.WriteFile(path, big, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	got, err := readGameLog(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != string(trimGameLog(big)) {
-		t.Fatalf("readGameLog (%d bytes) differs from trimGameLog (%d)", len(got), len(trimGameLog(big)))
-	}
-}
-
 // Concurrent changes to settings.json all land.
 func TestUpdateSettingsConcurrent(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", t.TempDir())

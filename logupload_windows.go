@@ -18,6 +18,25 @@ package main
 // The session id and account name the client prints stay in: the server
 // knows both already. The server runs the same filter again.
 //
+// The WHOLE log is sent (up to logUploadMaxRaw; the middle of a longer one is
+// left out, marked). It is never held in memory: package logupload reads the
+// file in blocks, redacts them at line breaks, and writes gzip parts of about
+// 4 MiB to a spool folder; they are uploaded one by one (POST /launcher/log/part,
+// then /launcher/log/commit) with a retry per part, so a flaky connection
+// costs one part, and each request is small enough for the servers' 15-30 s
+// request time. A server without that endpoint (older than this launcher) gets
+// the log the old way, in one POST cut to 40 MB.
+//
+// Why a spool folder: the game replaces DreadGame.log when it starts, and a log
+// that was not sent when the game closed is read before the next Play starts
+// it. The parts hold the redacted copy until the upload is over.
+//
+// The game itself used to keep only the first 256 KiB and the last 1.75 MiB of
+// its log, in memory, and write them out in ring order when it shut down
+// (its default log device; see gameLogArgs in main.go). The launcher starts it
+// with -NOLOGTOMEMORY, so the file is the whole, ordered log, written as it
+// goes.
+//
 // A log that could not be sent when the game closed (launcher closed first,
 // "close the launcher when the game starts", server unreachable) is sent on
 // the next Play, BEFORE the game starts: starting the game renames
@@ -25,116 +44,85 @@ package main
 
 import (
 	"bytes"
-	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/Dreadnought-Revival/Dreadnought-Revival-Launcher/logupload"
 )
 
-// logUploadURL is mmogbrain's /launcher/log, on the same host as clockURL.
+// logUploadURL is mmogbrain's /launcher/log, on the same host as clockURL; the
+// chunked upload uses /part and /commit under it.
 const logUploadURL = "https://mmog.greybox.sixfoot.live/launcher/log"
 
 const (
-	// logUploadMaxRaw is the most of a log that is sent; a longer one (a long
-	// session with the detailed log) keeps its start and its end. The server
-	// takes up to 48 MB.
-	logUploadMaxRaw  = 40 << 20
-	logUploadKeepTop = 4 << 20
+	// logUploadMaxRaw is the most of a log that is sent; a longer one keeps its
+	// start (logUploadKeepTop) and its end. The server takes up to 512 MiB.
+	logUploadMaxRaw  = logupload.DefaultMaxRaw
+	logUploadKeepTop = logupload.DefaultKeepTop
+	// logUploadLegacyRaw is the cut for a server that only has the one-POST
+	// upload (it takes 48 MB of text, 8 MB compressed).
+	logUploadLegacyRaw = 40 << 20
 	// logUploadMaxAge: a pending log older than this is not sent any more.
 	logUploadMaxAge = 7 * 24 * time.Hour
+	// logSpoolMaxAge: a spool folder left behind (the launcher was closed
+	// during an upload) is removed after this.
+	logSpoolMaxAge = 2 * 24 * time.Hour
 )
 
-var (
-	gameLogJWT     = regexp.MustCompile(`eyJ[A-Za-z0-9_-]{6,}(?:\.[A-Za-z0-9_-]*){0,2}`)
-	gameLogMachine = regexp.MustCompile(`(LogInit: (?:Computer|User): )[^\r\n]*`)
-	gameLogUserDir = regexp.MustCompile(`(?i)([A-Z]:[\\/]+Users[\\/]+)[^\\/\r\n"'<>|?*]+`)
-)
+// gameLogArgs are the switches that make the game write its whole log to
+// DreadGame.log as it goes.
+//
+// Without them the client's default log device is an in-memory one: the first
+// 256 KiB of the log plus a ring of the last 1.75 MiB (2 MiB in all), written
+// to Saved\Logs\DreadGame.log only when the game shuts down, in buffer order
+// (the start, then the newest part of the ring, then the oldest, so even the
+// part that survives is not in time order). Evidence, 2026-11-18:
+//   - 15 of 51 uploaded logs were 2,09x,xxx bytes (2 MiB minus redaction), the
+//     first 262,144 bytes followed by a ring whose time stamps jump back once;
+//   - the exe's log-device factory (RVA 0xBC7230) builds that device with the
+//     arguments (0x40000, 0x200000) unless the command line has NOLOGTOMEMORY,
+//     and then builds the ordinary file device (a UE4 FOutputDeviceFile with
+//     an async writer);
+//   - a client started under Wine with -NOLOGTOMEMORY wrote DreadGame.log from
+//     the first seconds (180 KB after 25 s, one line per log line, "Log file
+//     open" first); without the switch the same run wrote no file at all.
+//
+// -LOGTIMES keeps the absolute UTC time stamps ([2026.11.18-03.45.08:793]) the
+// memory device printed; the file device prints seconds since start without it.
+//
+// DN_LOG_TO_MEMORY=1 starts the game the old way (a way back without a release).
+func gameLogArgs() []string {
+	if os.Getenv("DN_LOG_TO_MEMORY") == "1" {
+		return nil
+	}
+	return []string{"-NOLOGTOMEMORY", "-LOGTIMES"}
+}
 
 // redactGameLog removes the sign-in token and the Windows computer and user
 // names. computer and profile are this PC's COMPUTERNAME and USERPROFILE,
 // removed wherever they appear ("" skips them).
 func redactGameLog(b []byte, computer, profile string) []byte {
-	b = gameLogJWT.ReplaceAll(b, []byte("<token removed>"))
-	b = gameLogMachine.ReplaceAll(b, []byte("${1}<removed>"))
-	b = gameLogUserDir.ReplaceAll(b, []byte("${1}<user>"))
-	// A profile outside C:\Users (D:\Profiles\name), either slash.
-	if len(profile) > 3 {
-		for _, p := range []string{profile, strings.ReplaceAll(profile, `\`, "/")} {
-			b = replaceFold(b, regexp.QuoteMeta(p), "<user folder>")
+	return logupload.NewRedactor(computer, profile).Apply(b)
+}
+
+// logSpoolRoot is the folder the parts of logs being sent are kept in.
+func logSpoolRoot() string { return filepath.Join(os.TempDir(), "DreadnoughtRevival-log-upload") }
+
+// sweepLogSpool removes spool folders that nothing is using any more.
+func sweepLogSpool() {
+	entries, _ := os.ReadDir(logSpoolRoot())
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > logSpoolMaxAge {
+			_ = os.RemoveAll(filepath.Join(logSpoolRoot(), e.Name()))
 		}
 	}
-	// The computer name as a whole word only, and not a short one: a PC named
-	// "GAME" must not blank every "/Game/" path.
-	if len(computer) >= 5 {
-		b = replaceFold(b, `\b`+regexp.QuoteMeta(computer)+`\b`, "<computer>")
-	}
-	return b
-}
-
-// replaceFold replaces every case-insensitive match of the pattern pat.
-func replaceFold(b []byte, pat, repl string) []byte {
-	re, err := regexp.Compile(`(?i)` + pat)
-	if err != nil {
-		return b
-	}
-	return re.ReplaceAllLiteral(b, []byte(repl))
-}
-
-// trimGameLog keeps a too-long log's first logUploadKeepTop bytes and its
-// end, with a line saying how much was cut.
-func trimGameLog(b []byte) []byte {
-	if len(b) <= logUploadMaxRaw {
-		return b
-	}
-	tail := logUploadMaxRaw - logUploadKeepTop
-	return joinCut(b[:logUploadKeepTop], b[len(b)-tail:], int64(len(b)-logUploadKeepTop-tail))
-}
-
-// readGameLog reads the log, but of one longer than logUploadMaxRaw only its
-// first logUploadKeepTop bytes and its end (trimGameLog's cut), without
-// reading the middle: a detailed log can run to hundreds of MB (audit
-// 2026-11-17: the whole file was read first).
-func readGameLog(path string) ([]byte, error) {
-	//nolint:gosec // the game's own log, in a folder found by gameLogFolders.
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	size := info.Size()
-	if size <= logUploadMaxRaw {
-		return io.ReadAll(io.LimitReader(f, logUploadMaxRaw))
-	}
-	tail := int64(logUploadMaxRaw - logUploadKeepTop)
-	head := make([]byte, logUploadKeepTop)
-	if _, err := f.ReadAt(head, 0); err != nil {
-		return nil, err
-	}
-	end := make([]byte, tail)
-	if _, err := f.ReadAt(end, size-tail); err != nil && !errors.Is(err, io.EOF) {
-		return nil, err
-	}
-	return joinCut(head, end, size-logUploadKeepTop-tail), nil
-}
-
-func joinCut(head, end []byte, cut int64) []byte {
-	out := make([]byte, 0, len(head)+len(end)+64)
-	out = append(out, head...)
-	out = append(out, fmt.Sprintf("\r\n[launcher: %d bytes of the log cut here]\r\n", cut)...)
-	return append(out, end...)
 }
 
 // gameLogClosedCleanly reports whether the game log at path ends with the
@@ -177,17 +165,18 @@ type gameSession struct {
 // The server tells a crash on exit (crashed=0 with a non-zero exit code) from
 // a crash during play (crashed=1).
 
-// pendingLog is a log read, filtered and compressed, ready to send.
+// pendingLog is a log read, filtered and compressed into parts, ready to send.
 type pendingLog struct {
-	gz       []byte
+	parts    *logupload.Manifest
 	modified int64
 	query    url.Values
 }
 
 var logUploadMu sync.Mutex
 
-// prepareGameLog reads the newest DreadGame.log, unless it was sent already,
-// uploads are off, or there is none. nil when there is nothing to send.
+// prepareGameLog reads the newest DreadGame.log into a spool folder, unless it
+// was sent already, uploads are off, or there is none. nil when there is
+// nothing to send.
 func (a *launcherAPI) prepareGameLog(s gameSession) *pendingLog {
 	settings := loadSettings()
 	if settings.NoLogUpload {
@@ -206,16 +195,21 @@ func (a *launcherAPI) prepareGameLog(s gameSession) *pendingLog {
 	if modified == settings.LogUploaded || (s.late && time.Since(info.ModTime()) > logUploadMaxAge) {
 		return nil
 	}
-	raw, err := readGameLog(path)
-	if err != nil {
-		fmt.Printf("[!] Could not read the game log: %v\n", err)
+	sweepLogSpool()
+	if err := os.MkdirAll(logSpoolRoot(), 0o700); err != nil {
+		fmt.Printf("[!] Could not prepare the game log: %v\n", err)
 		return nil
 	}
-	raw = redactGameLog(raw, os.Getenv("COMPUTERNAME"), os.Getenv("USERPROFILE"))
-	var buf bytes.Buffer
-	zw := gzip.NewWriter(&buf)
-	_, _ = zw.Write(raw)
-	if zw.Close() != nil {
+	spool, err := os.MkdirTemp(logSpoolRoot(), "log-")
+	if err != nil {
+		fmt.Printf("[!] Could not prepare the game log: %v\n", err)
+		return nil
+	}
+	red := logupload.NewRedactor(os.Getenv("COMPUTERNAME"), os.Getenv("USERPROFILE"))
+	parts, err := logupload.Spool(path, spool, red, logupload.Options{MaxRaw: logUploadMaxRaw, KeepTop: logUploadKeepTop})
+	if err != nil {
+		_ = os.RemoveAll(spool)
+		fmt.Printf("[!] Could not read the game log: %v\n", err)
 		return nil
 	}
 	q := url.Values{}
@@ -229,11 +223,14 @@ func (a *launcherAPI) prepareGameLog(s gameSession) *pendingLog {
 	if s.late {
 		q.Set("late", "1")
 	}
-	return &pendingLog{gz: buf.Bytes(), modified: modified, query: q}
+	return &pendingLog{parts: parts, modified: modified, query: q}
 }
 
-// send uploads the log and, once the server has it, remembers it as sent.
+// send uploads the log and, once the server has it, remembers it as sent. The
+// spool folder is removed either way: a failed upload is made again, from the
+// log file, at the next Play.
 func (p *pendingLog) send(token string) error {
+	defer p.parts.Remove()
 	if token == "" {
 		return errors.New("not signed in")
 	}
@@ -242,30 +239,29 @@ func (p *pendingLog) send(token string) error {
 	if loadSettings().LogUploaded == p.modified {
 		return nil
 	}
-	req, err := http.NewRequest(http.MethodPost, logUploadURL+"?"+p.query.Encode(), bytes.NewReader(p.gz))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/gzip")
-	req.Header.Set("Authorization", "Bearer "+token)
 	client := launcherHTTPClient()
-	client.Timeout = 60 * time.Second
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
+	client.Timeout = 90 * time.Second // per request: a part is a few MB at most
+	u := &logupload.Uploader{Client: client, Base: logUploadURL, Token: token}
+	err := u.Upload(p.parts, logupload.NewUploadID(), p.query)
+	if errors.Is(err, logupload.ErrNotSupported) {
+		// A server from before the chunked upload: the old single POST.
+		var body []byte
+		if body, err = logupload.Legacy(p.parts, logUploadLegacyRaw); err == nil {
+			err = u.SendLegacy(logUploadURL+"?"+p.query.Encode(), body)
+		}
 	}
-	_ = resp.Body.Close()
-	switch resp.StatusCode {
-	case http.StatusOK:
-	case http.StatusRequestEntityTooLarge, http.StatusBadRequest:
+	var refused *logupload.RefusedError
+	switch {
+	case err == nil:
+	case errors.As(err, &refused):
 		// Never accepted, so not tried again.
 		markGameLogSent(p.modified)
-		return fmt.Errorf("refused (HTTP %d)", resp.StatusCode)
+		return err
 	default:
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		return err
 	}
 	markGameLogSent(p.modified)
-	fmt.Printf("[+] Game log sent (%d KB compressed).\n", len(p.gz)>>10)
+	fmt.Printf("[+] Game log sent (%d MB of text, %d KB compressed, %d parts).\n", p.parts.Raw()>>20, p.parts.Stored()>>10, len(p.parts.Parts))
 	return nil
 }
 

@@ -556,6 +556,9 @@ func startGame(exeDir string, cfg Config, jwtToken, username string) (*os.Proces
 		fmt.Println("[*] Onboarding disabled (DN_SKIP_ONBOARDING / skip_onboarding) — the tutorial gate is bypassed.")
 	}
 
+	// The game's log, whole and in order (gameLogArgs in logupload_windows.go).
+	args = append(args, gameLogArgs()...)
+
 	if cfg.LogWindow || settings.LogWindow {
 		// -LOG only opens the console window; the log FILE (Saved\Logs\
 		// DreadGame.log) is written either way.
