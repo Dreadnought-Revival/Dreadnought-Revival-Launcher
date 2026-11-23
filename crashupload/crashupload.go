@@ -113,8 +113,13 @@ func newestFile(dir string) (time.Time, bool) {
 	return t, found
 }
 
-// skipFile: heap dumps (a whole process's memory) and screen videos.
+// skipFile: heap dumps (a whole process's memory), screen videos, and the
+// crash reporter's own settings: a UE4CC folder holding only
+// CrashReportClient.ini is no report (2 of the first 5 uploads, 2026-11-23).
 func skipFile(name string) bool {
+	if strings.EqualFold(name, "CrashReportClient.ini") {
+		return true
+	}
 	switch strings.ToLower(filepath.Ext(name)) {
 	case ".hdmp", ".avi", ".tmp":
 		return true

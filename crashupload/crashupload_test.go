@@ -100,13 +100,14 @@ func TestPackAndSplit(t *testing.T) {
 	write(t, filepath.Join(dir, "Report.wer"), wide("AppPath=C:\\Users\\Jane\\DreadGame.exe\r\n"), mod)
 	write(t, filepath.Join(dir, "memory.hdmp"), []byte("huge"), mod)
 	write(t, filepath.Join(dir, "DreadGame.log"), []byte("LogInit: Computer: GAMER-PC\r\n"), mod)
+	write(t, filepath.Join(dir, "CrashReportClient.ini"), []byte("[CrashReportClient]\r\n"), mod)
 
 	out := filepath.Join(t.TempDir(), "r.zip")
 	p, err := Pack(Report{Dir: dir, Name: "AppCrash_UE4-DreadGame_x", Modified: mod}, out, []string{"GAMER-PC"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Files != 3 || len(p.Skipped) != 1 || !strings.HasPrefix(p.Skipped[0], "memory.hdmp") {
+	if p.Files != 3 || len(p.Skipped) != 2 {
 		t.Fatalf("packed %+v", p)
 	}
 	zr, err := zip.OpenReader(out)
@@ -177,6 +178,15 @@ func TestUploadNamesTheReport(t *testing.T) {
 	want := "/launcher/crash/part report=AppCrash_UE4-DreadGame_x|/launcher/crash/part report=AppCrash_UE4-DreadGame_x|/launcher/crash/commit report=AppCrash_UE4-DreadGame_x"
 	if strings.Join(seen, "|") != want {
 		t.Errorf("requests %v", seen)
+	}
+}
+
+// A UE4CC folder holding only the crash reporter's settings is no report.
+func TestPackRefusesASettingsOnlyFolder(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "UE4CC-Windows-ABC")
+	write(t, filepath.Join(dir, "CrashReportClient.ini"), []byte("[CrashReportClient]\r\n"), time.Now())
+	if _, err := Pack(Report{Dir: dir, Name: "UE4CC-Windows-ABC"}, filepath.Join(t.TempDir(), "r.zip"), nil); err == nil {
+		t.Error("packed a folder with only CrashReportClient.ini")
 	}
 }
 
