@@ -39,6 +39,9 @@ type Uploader struct {
 	Backoff  time.Duration
 	// Progress, when set, is told after each part: parts sent, parts in all.
 	Progress func(sent, total int)
+	// PartQuery is added to every part request (the crash upload names its
+	// report on each part: mmogbrain refuses a part without it).
+	PartQuery url.Values
 }
 
 // NewUploadID is a fresh 128-bit upload id (32 hex digits).
@@ -122,7 +125,12 @@ func (u *Uploader) sendPart(m *Manifest, id string, i int, modified string) (don
 	if err != nil {
 		return false, err
 	}
-	v := url.Values{"id": {id}, "n": {strconv.Itoa(i)}}
+	v := url.Values{}
+	for k, vals := range u.PartQuery {
+		v[k] = vals
+	}
+	v.Set("id", id)
+	v.Set("n", strconv.Itoa(i))
 	if modified != "" {
 		v.Set("modified", modified)
 	}

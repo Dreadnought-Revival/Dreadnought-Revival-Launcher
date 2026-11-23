@@ -11,6 +11,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/Dreadnought-Revival/Dreadnought-Revival-Launcher/crashupload"
 	"os"
 	"path/filepath"
 	"strings"
@@ -344,6 +345,8 @@ func (a *launcherAPI) Play() map[string]any {
 			}
 		}()
 	}
+	// Crash reports not sent yet (crashupload_windows.go).
+	go a.uploadCrashReports(gameSession{exitCode: -1, late: true}, time.Now().Add(-crashUploadMaxAge), false)
 	started := time.Now()
 	game, err := startGame(a.exeDir, a.config(), token, username)
 	if err != nil {
@@ -380,6 +383,13 @@ func (a *launcherAPI) WaitGame() map[string]any {
 	}
 	a.mu.Unlock()
 	crashFolder := newestCrashFolder(a.gameSavedFolders(), started)
+	if crashFolder == "" {
+		// The game's Windows Error Report (crashupload_windows.go): where
+		// this build's crash handler actually leaves its report.
+		if reports := crashupload.Find(a.crashRoots(), started); len(reports) > 0 {
+			crashFolder = reports[0].Dir
+		}
+	}
 	crashed := code != 0 || crashFolder != ""
 	// A non-zero exit after the log's last line is the crash on exit every
 	// quit has (gameLogClosedCleanly): the player saw a normal close.
@@ -398,6 +408,9 @@ func (a *launcherAPI) WaitGame() map[string]any {
 	}
 	fmt.Printf("[*] The game closed (exit code %d%s) after %s\n", code, how, time.Since(started).Round(time.Second))
 	go a.uploadGameLogAfterGame(gameSession{exitCode: code, crashed: crashed, seconds: int(time.Since(started).Seconds())})
+	if crashed || exitCrash {
+		go a.uploadCrashReportsAfterGame(gameSession{exitCode: code, crashed: crashed, seconds: int(time.Since(started).Seconds())}, started, exitCrash)
+	}
 	return map[string]any{"ok": true, "exitCode": code, "crashed": crashed, "exitCrash": exitCrash,
 		"crashFolder": crashFolder, "seconds": int(time.Since(started).Seconds())}
 }
@@ -421,9 +434,10 @@ func (a *launcherAPI) gameSavedFolders() []string {
 
 // newestCrashFolder is the newest folder the game's crash reporter made since
 // the given time: a folder under Saved\Crashes, or a "UE4CC-..." one under
-// Saved\Logs. "" when there is none. GUESS: these are the two places Unreal
-// Engine 4 versions put a crash's dump and log; no crash folder of this game
-// was at hand to check which one it uses.
+// Saved\Logs. "" when there is none. These are where later Unreal Engine 4
+// versions put a crash's dump and log; this build (4.13) has no "Crashes"
+// literal and files a Windows Error Report instead (verified in the exe
+// 2026-11-23, crashupload), which WaitGame looks for when this finds nothing.
 func newestCrashFolder(savedDirs []string, since time.Time) string {
 	best, bestTime := "", time.Time{}
 	for _, saved := range savedDirs {

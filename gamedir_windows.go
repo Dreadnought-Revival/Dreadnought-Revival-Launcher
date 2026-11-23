@@ -35,11 +35,18 @@ type launcherSettings struct {
 	// taskbar when it is minimized (tray_windows.go).
 	TrayMinimize bool `json:"tray_minimize,omitempty"`
 	// NoLogUpload turns off sending the game log after a session
-	// (logupload_windows.go); sending is on by default.
+	// (logupload_windows.go) and the crash reports (crashupload_windows.go);
+	// sending is on by default.
 	NoLogUpload bool `json:"no_log_upload,omitempty"`
 	// LogUploaded is the time stamp (Unix seconds) of the last DreadGame.log
 	// sent, so a log is sent once.
 	LogUploaded int64 `json:"log_uploaded,omitempty"`
+	// CrashesSent are the names of the last crash report folders sent (or
+	// passed over), so each is sent once (crashupload_windows.go).
+	CrashesSent []string `json:"crashes_sent,omitempty"`
+	// ExitCrashSent is when (Unix seconds) the last crash-on-exit or
+	// next-Play crash report was sent: those are sent once a week at most.
+	ExitCrashSent int64 `json:"exit_crash_sent,omitempty"`
 	// Server is the server picked in the window (serverChoice.id; empty =
 	// the default; servers_windows.go).
 	Server string `json:"server,omitempty"`

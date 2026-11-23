@@ -203,6 +203,15 @@ status and update check refreshed; if the game ended with a non-zero exit code
 or wrote a crash folder, the page says so and points to *Game logs*. Settings
 has *Close the launcher when the game starts* for the old behaviour.
 
+**After the game** (`logupload_windows.go`, `crashupload_windows.go`). The
+launcher sends the session's `DreadGame.log` to the server, and after a crash
+the crash report the game queued with Windows Error Reporting (its minidump
+and files, from `%LOCALAPPDATA%\Microsoft\Windows\WER\ReportQueue`), zipped.
+The sign-in token and the Windows computer and user names are removed first;
+in the crash report they are overwritten byte for byte, so the dump still
+opens in a debugger. The crash on exit every quit ends with is sent at most
+once a week. *Send my game log and crash reports* in Settings turns both off.
+
 The launcher has an icon in the notification area (system tray): a left click
 shows the window; the right-click menu has *Open launcher*, *Play*, *Open
 logs* and *Quit*. With the setting *Minimize to the system tray*, the minimize

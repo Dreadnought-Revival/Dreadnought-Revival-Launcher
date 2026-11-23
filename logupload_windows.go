@@ -5,8 +5,9 @@ package main
 // Game log upload. When the game closes, the launcher sends the session's
 // DreadGame.log to the server (mmogbrain POST /launcher/log, through the
 // gateway like /launcher/clock), so a bug report no longer depends on the
-// player finding the file. On by default; "Send my game log" in the settings
-// turns it off (settings.json no_log_upload).
+// player finding the file. On by default; "Send my game log and crash
+// reports" in the settings turns it off (settings.json no_log_upload), the
+// crash reports too (crashupload_windows.go).
 //
 // Before anything leaves the PC the log loses (redactGameLog):
 //   - the sign-in token: the client prints its own JWT
