@@ -166,6 +166,10 @@ func runDesktopLauncher(exeDir string, cfg Config) bool {
 	_ = w.Bind("dnSubmit", func(mode, username, identifier, password string, remember bool) {
 		go func() { reply("dnAuthResult", api.Submit(mode, username, identifier, password, remember)) }()
 	})
+	// "Forgot password?" (account.go): network, so off the UI thread.
+	_ = w.Bind("dnReset", func(step, email, code, password string) {
+		go func() { reply("dnResetResult", api.PasswordReset(step, email, code, password)) }()
+	})
 	// Switching server resolves it and may fetch its certificate.
 	_ = w.Bind("dnUseServer", func(id string) {
 		go func() { reply("dnServerResult", api.UseServer(id)) }()

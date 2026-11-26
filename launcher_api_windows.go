@@ -221,6 +221,36 @@ func (a *launcherAPI) Submit(mode, username, identifier, password string, rememb
 	return map[string]any{"ok": true, "username": creds.Username}
 }
 
+// PasswordReset is the "Forgot password?" form: step "send" mails a code to
+// email, step "set" uses it to set password (account.go).
+func (a *launcherAPI) PasswordReset(step, email, code, password string) map[string]any {
+	email = strings.TrimSpace(email)
+	fail := func(msg string) map[string]any { return map[string]any{"ok": false, "step": step, "error": msg} }
+	if email == "" {
+		return fail("Enter the email address of your account.")
+	}
+	var msg string
+	var err error
+	switch step {
+	case "send":
+		msg, err = requestPasswordResetCode(a.cfg.AuthURL, email)
+	case "set":
+		if strings.TrimSpace(code) == "" {
+			return fail("Enter the code from the email.")
+		}
+		if len(password) < 6 {
+			return fail("Use at least 6 characters for the password.")
+		}
+		msg, err = resetPasswordWithCode(a.cfg.AuthURL, email, code, password)
+	default:
+		return fail("unknown step")
+	}
+	if err != nil {
+		return fail(capitalise(err.Error()))
+	}
+	return map[string]any{"ok": true, "step": step, "message": msg, "email": email}
+}
+
 func (a *launcherAPI) SignOut() {
 	clearCredentials()
 	a.mu.Lock()

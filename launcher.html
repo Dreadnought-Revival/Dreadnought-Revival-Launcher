@@ -141,7 +141,8 @@
   .box .error.good { color:var(--ok); }
   .account { width:432px; height:452px; }
   .account .btn { position:absolute; bottom:16px; left:116px; min-width:200px; }
-  #login { left:80px; } #register { left:593px; }
+  #login, #reset { left:80px; } #register { left:593px; }
+  .account .forgot { position:absolute; bottom:64px; left:42px; }
   #cert .box, #settings .box { left:252px; width:600px; }
   #cert p, #settings p { font-size:14px; line-height:1.5; color:#d8d8d8; margin-bottom:12px; }
   #cert b { color:#fff; font-weight:normal; }
@@ -246,7 +247,23 @@
       <label class="key" for="login-pw">Password</label>
       <input id="login-pw" type="password" autocomplete="current-password" maxlength="256">
       <label class="option remember"><input type="checkbox" id="login-remember" checked><span>Remember me<small>Keeps your password, encrypted for your Windows user, so the launcher signs you in by itself.</small></span></label>
+      <div class="forgot"><button type="button" class="linkbtn" onclick="openReset()">Forgot password?</button></div>
       <button class="btn" id="login-go" type="submit">Sign in</button>
+    </form>
+    <!-- "Forgot password?": a code by email, then a new password (account.go) -->
+    <form class="box account" id="reset" hidden onsubmit="submitReset(event)">
+      <h1>Reset password</h1>
+      <div class="error" id="reset-msg"></div>
+      <label class="key" for="reset-email">Email of your account</label>
+      <input id="reset-email" type="email" autocomplete="email" maxlength="254" spellcheck="false">
+      <div id="reset-step2" hidden>
+        <label class="key" for="reset-code">Code from the email</label>
+        <input id="reset-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" spellcheck="false">
+        <label class="key" for="reset-pw">New password</label>
+        <input id="reset-pw" type="password" autocomplete="new-password" maxlength="256">
+      </div>
+      <div class="forgot"><button type="button" class="linkbtn" onclick="closeReset()">Back to sign in</button></div>
+      <button class="btn" id="reset-go" type="submit">Send code</button>
     </form>
     <form class="box account" id="register" onsubmit="submitForm(event, 'register')">
       <h1>Create new account</h1>
@@ -401,6 +418,42 @@
     say(mode + '-msg', 'Contacting the server…', 'good');
     if (mode === 'register') dnSubmit('register', $('reg-name').value, $('reg-email').value, $('reg-pw').value, $('reg-remember').checked);
     else dnSubmit('login', '', $('login-id').value, $('login-pw').value, $('login-remember').checked);
+  }
+  // ---- forgot password (dnReset: launcher_api_windows.go PasswordReset) ----
+  let resetStep = 'send';
+  function openReset() {
+    resetStep = 'send';
+    $('reset-step2').hidden = true; $('reset-go').textContent = 'Send code'; $('reset-go').disabled = false;
+    const id = $('login-id').value.trim();
+    if (id.includes('@')) $('reset-email').value = id;
+    say('reset-msg', ''); say('login-msg', '');
+    $('login').hidden = true; $('reset').hidden = false;
+    setTimeout(() => $('reset-email').focus(), 50);
+  }
+  function closeReset(msg) {
+    $('reset').hidden = true; $('login').hidden = false;
+    say('login-msg', msg || '', msg ? 'good' : '');
+  }
+  function submitReset(e) {
+    e.preventDefault();
+    $('reset-go').disabled = true;
+    say('reset-msg', 'Contacting the server…', 'good');
+    dnReset(resetStep, $('reset-email').value, $('reset-code').value, $('reset-pw').value);
+  }
+  function dnResetResult(r) {
+    $('reset-go').disabled = false;
+    if (!r.ok) { say('reset-msg', r.error || 'That did not work.', 'bad'); return; }
+    if (r.step === 'send') {
+      resetStep = 'set';
+      $('reset-step2').hidden = false; $('reset-go').textContent = 'Set new password';
+      say('reset-msg', 'Check your email for the code.', 'good');
+      setTimeout(() => $('reset-code').focus(), 50);
+      return;
+    }
+    $('reset-code').value = ''; $('reset-pw').value = '';
+    $('login-id').value = r.email; $('login-pw').value = '';
+    closeReset(r.message || 'Password changed. Sign in.');
+    setTimeout(() => $('login-pw').focus(), 50);
   }
   function dnAuthResult(r) {
     const mode = pending || 'login';

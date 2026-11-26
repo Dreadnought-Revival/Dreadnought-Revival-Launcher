@@ -189,6 +189,42 @@ func registerAccount(authURL, username, email, password string) error {
 	return nil
 }
 
+// Password reset by email (auth-server handlers/email_reset.go): the server
+// mails an 8-digit code to the account's address, which then sets a new
+// password. Both answer with a message to show; the first says the same
+// whether or not an account uses the address.
+
+// requestPasswordResetCode asks the server to mail a reset code.
+func requestPasswordResetCode(authURL, email string) (string, error) {
+	return postAuthJSON(authBaseURL(authURL)+"/password/forgot", map[string]string{"email": email},
+		"If an account uses that address, a code is on its way.")
+}
+
+// resetPasswordWithCode sets a new password with a mailed code.
+func resetPasswordWithCode(authURL, email, code, password string) (string, error) {
+	return postAuthJSON(authBaseURL(authURL)+"/password/reset",
+		map[string]string{"email": email, "code": code, "password": password},
+		"Your password is changed. Sign in with the new one.")
+}
+
+// postAuthJSON posts body and returns the server's message (or okText).
+func postAuthJSON(endpoint string, body map[string]string, okText string) (string, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	resp, err := launcherHTTPClient().Post(endpoint, "application/json", bytes.NewReader(raw))
+	if err != nil {
+		return "", fmt.Errorf("could not reach the server (%v)", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("%s", serverMessage(payload, fmt.Sprintf("the server answered HTTP %d", resp.StatusCode)))
+	}
+	return serverMessage(payload, okText), nil
+}
+
 // loginAccount exchanges an identifier and password for a JWT. The identifier
 // may be the email or the username -- the server accepts either.
 func loginAccount(authURL, identifier, password string) (storedCredentials, error) {

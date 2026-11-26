@@ -2,7 +2,12 @@
 
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 // The config's auth_url points at the login route itself (".../auth/"), so the
 // register endpoint has to be built from a trimmed base rather than appended to
@@ -53,5 +58,40 @@ func TestCapitaliseLeavesEmptyAlone(t *testing.T) {
 	}
 	if got := capitalise(""); got != "" {
 		t.Errorf("capitalise(empty) = %q, want empty", got)
+	}
+}
+
+// "Forgot password?": both calls reach the server's routes under the auth
+// base and show its message; a refusal shows the server's reason.
+func TestPasswordResetCallsTheServer(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/auth/password/forgot" && body["email"] == "pilot@example.com":
+			_, _ = w.Write([]byte(`{"ok":true,"message":"A code is on its way."}`))
+		case r.URL.Path == "/auth/password/reset" && body["code"] == "12345678" && body["password"] == "newpass1":
+			_, _ = w.Write([]byte(`{"ok":true,"message":"Changed."}`))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":-32011,"message":"That code is wrong or has expired."}}`))
+		}
+	}))
+	defer srv.Close()
+	auth := srv.URL + "/auth/"
+	if msg, err := requestPasswordResetCode(auth, "pilot@example.com"); err != nil || msg != "A code is on its way." {
+		t.Errorf("send: %q %v", msg, err)
+	}
+	if msg, err := resetPasswordWithCode(auth, "pilot@example.com", "12345678", "newpass1"); err != nil || msg != "Changed." {
+		t.Errorf("set: %q %v", msg, err)
+	}
+	if _, err := resetPasswordWithCode(auth, "pilot@example.com", "99999999", "newpass1"); err == nil || err.Error() != "That code is wrong or has expired." {
+		t.Errorf("wrong code: %v", err)
+	}
+	if len(paths) != 3 || paths[0] != "/auth/password/forgot" || paths[1] != "/auth/password/reset" {
+		t.Errorf("paths %v", paths)
 	}
 }
