@@ -47,6 +47,7 @@ type launcherAPI struct {
 
 func newLauncherAPI(exeDir string, cfg Config, owner func() uintptr) *launcherAPI {
 	a := &launcherAPI{exeDir: exeDir, cfg: cfg, owner: owner}
+	restoreGwogMod(exeDir, cfg)
 	if !signOutRequested() {
 		a.loadSaved()
 	}
@@ -357,6 +358,11 @@ func (a *launcherAPI) Play() map[string]any {
 		return map[string]any{"ok": false, "game": true,
 			"error": "Dreadnought was not found. Choose your game folder above."}
 	}
+	// gwog's patch: ask first; kept, it is off for this game
+	// (gwogmod_windows.go).
+	if mod := gwogModInfo(a.exeDir, a.config()); len(mod) > 0 && !loadSettings().GwogKeep {
+		return map[string]any{"ok": false, "gwogMod": mod, "error": "Incompatible mod detected."}
+	}
 	if token == "" || launcherTokenExpired(token) {
 		var err error
 		if token, username, err = a.renew(); err != nil {
@@ -377,11 +383,17 @@ func (a *launcherAPI) Play() map[string]any {
 	}
 	// Crash reports not sent yet (crashupload_windows.go).
 	go a.uploadCrashReports(gameSession{exitCode: -1, late: true}, time.Now().Add(-crashUploadMaxAge), false)
+	afterGwog, err := gwogBeforeStart(a.exeDir, a.config())
+	if err != nil {
+		return map[string]any{"ok": false, "error": "Could not turn gwog's patch off for this game (" + err.Error() + "). Close Dreadnought and try again."}
+	}
 	started := time.Now()
 	game, err := startGame(a.exeDir, a.config(), token, username)
 	if err != nil {
+		afterGwog(0)
 		return map[string]any{"ok": false, "error": capitalise(err.Error()), "serverIP": a.serverIP()}
 	}
+	go afterGwog(game.Pid)
 	a.mu.Lock()
 	a.game, a.gameStarted = game, started
 	a.mu.Unlock()

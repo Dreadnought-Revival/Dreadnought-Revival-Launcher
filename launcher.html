@@ -143,9 +143,9 @@
   .account .btn { position:absolute; bottom:16px; left:116px; min-width:200px; }
   #login, #reset { left:80px; } #register { left:593px; }
   .account .forgot { position:absolute; bottom:64px; left:42px; }
-  #cert .box, #settings .box { left:252px; width:600px; }
-  #cert p, #settings p { font-size:14px; line-height:1.5; color:#d8d8d8; margin-bottom:12px; }
-  #cert b { color:#fff; font-weight:normal; }
+  #cert .box, #settings .box, #gwog .box { left:252px; width:600px; }
+  #cert p, #settings p, #gwog p { font-size:14px; line-height:1.5; color:#d8d8d8; margin-bottom:12px; }
+  #cert b, #gwog b { color:#fff; font-weight:normal; }
   .fp { font:12px/1.5 Consolas, monospace; color:#d8d8d8; word-break:break-all; user-select:text; background:rgba(0,0,0,.5);
     border:1px solid #333; padding:8px 10px; margin:2px 0 12px; }
   .buttons { display:flex; justify-content:center; gap:10px; margin-top:6px; }
@@ -312,6 +312,20 @@
     </div>
   </section>
 
+  <!-- gwog's Dreadnought Revival Patch found in the game folder (gwogmod_windows.go) -->
+  <section class="view" id="gwog">
+    <div class="box">
+      <h1>Incompatible mod detected</h1>
+      <p><b>gwog's Dreadnought Revival Patch</b> is installed in your game folder and is
+        not compatible with this launcher.</p>
+      <div class="error" id="gwogmsg"></div>
+      <div class="buttons">
+        <button class="btn" id="gwog-go" onclick="removeGwog()">Uninstall</button>
+        <button class="btn btn-cancel" id="gwog-keep" onclick="keepGwog()">Keep</button>
+      </div>
+    </div>
+  </section>
+
   <!-- SETTINGS: game folder, options, server -->
   <section id="settings" onclick="if (event.target === this) closeSettings()">
     <div class="box">
@@ -322,6 +336,10 @@
       <div class="links">
         <button class="linkbtn" onclick="pickGame()">Change…</button>
         <button class="linkbtn" id="autogame" onclick="autoGame()" hidden>Use automatic detection</button>
+      </div>
+      <div id="gwog-row" hidden>
+        <div class="small">gwog's Dreadnought Revival Patch: kept, turned off while this launcher's games start.</div>
+        <div class="links"><button class="linkbtn" onclick="removeGwogFromSettings()">Uninstall</button></div>
       </div>
       <div id="gamedir-row" hidden>
         <input id="gamedir" type="text" placeholder="C:\Games\Dreadnought" spellcheck="false">
@@ -402,7 +420,7 @@
 
   // ---- views --------------------------------------------------------------
   function show(view) {
-    for (const v of ['servers', 'cert', 'signin', 'home']) $(v).classList.toggle('shown', v === view);
+    for (const v of ['servers', 'cert', 'gwog', 'signin', 'home']) $(v).classList.toggle('shown', v === view);
     $('nav').hidden = view !== 'home';
     if (view === 'signin') setTimeout(() => $($('login-id').value ? 'login-pw' : 'login-id').focus(), 50);
   }
@@ -485,6 +503,7 @@
     $('play').disabled = false;
     if (r.cert) { if (state.cert) showCert(state.cert); say('certmsg', r.error); show('cert'); return; }
     if (r.game) { openSettings(); $('gamepath').classList.add('missing'); say('gamemsg', r.error); return; }
+    if (r.gwogMod) { say('playmsg', ''); showGwog(r.gwogMod, () => afterCert(), true); return; }
     if (r.signIn) signOut();
   }
   // The game has closed and the window is back (desktop only): Play works
@@ -532,6 +551,50 @@
     if (!r.ok) { say('certmsg', r.error); return; }
     say('certmsg', 'Installed.', 'good');
     setTimeout(afterCert, 600);
+  }
+
+  // ---- gwog's Dreadnought Revival Patch -------------------------------------
+  // Asked at start, after a game folder change and on Play, until the player
+  // chooses. Keep is remembered: the launcher then turns the patch off while
+  // its games start (gwogmod_windows.go); Settings can still uninstall it.
+  let gwogNext = null, gwogPlay = false;
+  function showGwog(files, next, fromPlay) {
+    gwogNext = next; gwogPlay = !!fromPlay;
+    $('gwog-keep').textContent = fromPlay ? 'Keep and play' : 'Keep';
+    $('gwog-go').disabled = false;
+    say('gwogmsg', '');
+    closeSettings();
+    show('gwog');
+  }
+  function afterGwog(play_) {
+    const next = gwogNext; gwogNext = null;
+    if (next) next();
+    if (play_ && gwogPlay && state.signedIn) setTimeout(play, 300);
+  }
+  async function removeGwog() {
+    $('gwog-go').disabled = true;
+    say('gwogmsg', 'Removing…', 'good');
+    const r = await dnRemoveGwogMod();
+    if (r.game) showGame(r.game);
+    if (!r.ok) { $('gwog-go').disabled = false; say('gwogmsg', r.error); say('gamemsg', r.error); return; }
+    if (!gwogNext) { say('gamemsg', r.steamVerify ? "Removed. To get the original Dreadnought launcher back, verify the game files in Steam." : 'Removed.', 'good'); return; }
+    say('gwogmsg', 'Uninstalled.', 'good');
+    setTimeout(() => {
+      afterGwog(false);
+      if (r.steamVerify) say('playmsg', "Removed. To get the original Dreadnought launcher back, verify the game files in Steam.", 'good');
+      else say('playmsg', 'Removed.', 'good');
+    }, 600);
+  }
+  function removeGwogFromSettings() {
+    if (!confirm("Uninstall gwog's Dreadnought Revival Patch?")) return;
+    gwogNext = null;
+    removeGwog();
+  }
+  async function keepGwog() {
+    const r = await dnKeepGwogMod();
+    if (!r.ok) { say('gwogmsg', r.error); return; }
+    if (r.game) showGame(r.game);
+    afterGwog(true);
   }
 
   // ---- server picker ------------------------------------------------------
@@ -661,9 +724,13 @@
     $('gamepath').classList.toggle('missing', !g.path);
     $('gamesrc').textContent = g.path ? (gameSources[g.source] || '') : '';
     $('autogame').hidden = g.source !== 'chosen';
+    $('gwog-row').hidden = !(g.gwogMod && g.gwogMod.length && g.gwogKept);
   }
   async function gameChanged(r, okText) {
-    if (r.ok) { showGame(r.game); say('playmsg', ''); say('gamemsg', okText, 'good'); loadSkin(); }
+    if (r.ok) {
+      showGame(r.game); say('playmsg', ''); say('gamemsg', okText, 'good'); loadSkin();
+      if (r.game && r.game.gwogMod && r.game.gwogMod.length && !r.game.gwogKept) showGwog(r.game.gwogMod, () => afterCert());
+    }
     else if (r.error) say('gamemsg', r.error);
   }
   async function pickGame() { say('gamemsg', ''); gameChanged(await dnPickGame(), 'Saved.'); }
@@ -855,9 +922,10 @@
     if (s.signedIn) $('name').textContent = s.username;
     else if (s.identifier) $('login-id').value = s.identifier;
     renderServers();
+    const next = () => { if (s.cert) showCert(s.cert); else afterCert(); };
     if (s.servers && s.servers.unset) openServers();
-    else if (s.cert) showCert(s.cert);
-    else afterCert();
+    else if (s.game && s.game.gwogMod && s.game.gwogMod.length && !s.game.gwogKept) showGwog(s.game.gwogMod, next);
+    else next();
     dnNews();
     dnPatchNotes();
     // After the window is up: Windows' removal question belongs to it.

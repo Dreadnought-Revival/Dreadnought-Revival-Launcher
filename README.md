@@ -212,6 +212,27 @@ in the crash report they are overwritten byte for byte, so the dump still
 opens in a debugger. The crash on exit every quit ends with is sent at most
 once a week. *Send my game log and crash reports* in Settings turns both off.
 
+**gwog's Dreadnought Revival Patch** (`modcheck/`, `gwogmod_windows.go`).
+That older community mod ([SyST3MDeV/Dreadnought](https://github.com/SyST3MDeV/Dreadnought))
+puts `wer.dll` and `Dreadnought.dll` into `Binaries\Win64`, where the game
+loads them, and replaces `DreadnoughtLauncher.exe`; it is not compatible with
+this launcher's games. When the game folder has it, the window says
+*Incompatible mod detected* and offers **Uninstall** or **Keep** (at start,
+after the game folder changes, and on Play, until the player chooses).
+
+- **Uninstall** deletes only the patch's files, each checked again first: any
+  `Dreadnought.dll`, a small `wer.dll` that loads `Dreadnought.dll` (never the
+  battle-server mod, which is also `wer.dll`), and a small
+  `DreadnoughtLauncher.exe` that is the patch's (never the original or this
+  launcher renamed). The page then points to Steam's *Verify integrity of
+  game files* to get the original launcher back.
+- **Keep** is remembered. Play renames the two DLLs (`.dn-revival-off`),
+  starts the game, waits until the game has loaded its `wer.dll` (a static
+  import of the game exe, so Windows' own one, while the process starts) and
+  gives the names back, within seconds and while the game runs. A rename
+  left over is put back when the launcher starts. Settings shows the kept
+  patch with an Uninstall link.
+
 The launcher has an icon in the notification area (system tray): a left click
 shows the window; the right-click menu has *Open launcher*, *Play*, *Open
 logs* and *Quit*. With the setting *Minimize to the system tray*, the minimize

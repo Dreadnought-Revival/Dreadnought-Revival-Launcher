@@ -128,6 +128,9 @@ func runDesktopLauncher(exeDir string, cfg Config) bool {
 	_ = w.Bind("dnOpenLogs", api.OpenLogs)
 	_ = w.Bind("dnAssets", api.Assets)
 	_ = w.Bind("dnOpenURL", api.OpenURL)
+	// gwog's patch (gwogmod_windows.go): a few file deletions.
+	_ = w.Bind("dnRemoveGwogMod", api.RemoveGwogMod)
+	_ = w.Bind("dnKeepGwogMod", api.KeepGwogMod)
 	// The window has no frame (as the original's "windowFrame": "Borderless"),
 	// so the page moves, minimizes and closes it.
 	_ = w.Bind("dnWindow", func(action string) {
@@ -243,7 +246,8 @@ func gameInfo(exeDir string, cfg Config) map[string]any {
 	if p == "" {
 		return map[string]any{"path": "", "source": ""}
 	}
-	return map[string]any{"path": gameInstallRoot(p), "source": source}
+	return map[string]any{"path": gameInstallRoot(p), "source": source,
+		"gwogMod": gwogModInfo(exeDir, cfg), "gwogKept": loadSettings().GwogKeep}
 }
 
 func fetchNews() ([]newsTile, error) {

@@ -55,6 +55,8 @@ const browserBridgeJS = `<script>
   window.dnOpenLogs = () => dnCall('openLogs');
   window.dnAssets = () => dnCall('assets');
   window.dnOpenURL = (url) => dnCall('openURL', [url]);
+  window.dnRemoveGwogMod = () => dnCall('removeGwogMod');
+  window.dnKeepGwogMod = () => dnCall('keepGwogMod');
   window.dnCleanCerts = () => dnCall('cleanCerts');
   window.dnCerts = () => dnCall('certs');
   window.dnRemoveCert = (h) => dnCall('removeCert', [h]);
@@ -162,6 +164,10 @@ func runBrowserLauncher(exeDir string, cfg Config) error {
 			out = api.Submit(str(0), str(1), str(2), str(3), boolean(4))
 		case "reset":
 			out = api.PasswordReset(str(0), str(1), str(2), str(3))
+		case "removeGwogMod":
+			out = api.RemoveGwogMod()
+		case "keepGwogMod":
+			out = api.KeepGwogMod()
 		case "news":
 			out = api.News()
 		case "patchNotes":

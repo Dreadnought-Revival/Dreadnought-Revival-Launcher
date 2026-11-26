@@ -53,6 +53,9 @@ type launcherSettings struct {
 	// Certs are the server certificates in the Trusted Root store the
 	// launcher knows of, with when each was last used (certs_windows.go).
 	Certs []certRecord `json:"certs,omitempty"`
+	// GwogKeep: the player keeps gwog's patch; it is turned off while this
+	// launcher's games start (gwogmod_windows.go).
+	GwogKeep bool `json:"gwog_keep,omitempty"`
 }
 
 func settingsPath() string {
